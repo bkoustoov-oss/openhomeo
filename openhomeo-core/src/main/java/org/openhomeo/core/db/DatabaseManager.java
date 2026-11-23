@@ -240,6 +240,137 @@ public class DatabaseManager {
                 );
             """);
 
+            // Past Medications & Suppressions History
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS consultation_past_medications (
+                    id TEXT PRIMARY KEY,
+                    consultation_id TEXT,
+                    patient_id TEXT NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+                    drug_name TEXT NOT NULL,
+                    category TEXT,
+                    duration TEXT,
+                    dosage TEXT,
+                    suppressed_symptoms TEXT,
+                    antidote_remedy TEXT,
+                    recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """);
+            stmt.execute("CREATE INDEX IF NOT EXISTS idx_pastmed_pat ON consultation_past_medications(patient_id);");
+
+            // Remedy Supersede & Override Clinical Audit
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS remedy_supersede_audit (
+                    id TEXT PRIMARY KEY,
+                    consultation_id TEXT,
+                    patient_id TEXT NOT NULL,
+                    doctor_id TEXT,
+                    suggested_remedy_id TEXT NOT NULL,
+                    suggested_remedy_name TEXT NOT NULL,
+                    prescribed_remedy_id TEXT NOT NULL,
+                    prescribed_remedy_name TEXT NOT NULL,
+                    nullification_reason TEXT NOT NULL,
+                    clinical_case_notes TEXT,
+                    case_study_tag TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """);
+
+            // Pharmacy Medicine Inventory
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS medicine_inventory (
+                    id TEXT PRIMARY KEY,
+                    remedy_id TEXT,
+                    medicine_name TEXT NOT NULL,
+                    company_name TEXT NOT NULL,
+                    form TEXT NOT NULL,
+                    potency TEXT NOT NULL,
+                    batch_number TEXT,
+                    expiry_date DATE,
+                    current_stock_qty INTEGER NOT NULL DEFAULT 0,
+                    reorder_level INTEGER NOT NULL DEFAULT 5,
+                    unit_price_inr REAL NOT NULL DEFAULT 100.0,
+                    rack_location TEXT,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """);
+            stmt.execute("CREATE INDEX IF NOT EXISTS idx_med_name ON medicine_inventory(medicine_name);");
+            stmt.execute("CREATE INDEX IF NOT EXISTS idx_med_rem ON medicine_inventory(remedy_id);");
+            stmt.execute("CREATE INDEX IF NOT EXISTS idx_med_comp ON medicine_inventory(company_name);");
+
+            // Pharmacy Orders (Doctor -> Pharmacy)
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS pharmacy_orders (
+                    id TEXT PRIMARY KEY,
+                    order_number TEXT UNIQUE NOT NULL,
+                    consultation_id TEXT,
+                    patient_id TEXT NOT NULL,
+                    patient_name TEXT NOT NULL,
+                    doctor_id TEXT,
+                    doctor_name TEXT,
+                    status TEXT NOT NULL,
+                    substitution_notes TEXT,
+                    pharmacist_agreed_by TEXT,
+                    doctor_agreed_by TEXT,
+                    order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    completed_date TIMESTAMP
+                );
+            """);
+
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS pharmacy_order_items (
+                    id TEXT PRIMARY KEY,
+                    order_id TEXT NOT NULL REFERENCES pharmacy_orders(id) ON DELETE CASCADE,
+                    remedy_id TEXT,
+                    prescribed_remedy TEXT NOT NULL,
+                    prescribed_potency TEXT,
+                    prescribed_form TEXT,
+                    instructions TEXT,
+                    substituted_remedy TEXT,
+                    substituted_potency TEXT,
+                    substituted_form TEXT,
+                    company TEXT,
+                    quantity INTEGER DEFAULT 1,
+                    unit_price_inr REAL DEFAULT 0,
+                    dispensed BOOLEAN DEFAULT FALSE
+                );
+            """);
+
+            // Stock Reorder Requests
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS stock_reorder_requests (
+                    id TEXT PRIMARY KEY,
+                    request_number TEXT UNIQUE NOT NULL,
+                    requested_by_user TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    approved_by_user TEXT,
+                    approval_date TIMESTAMP,
+                    total_estimated_inr REAL DEFAULT 0,
+                    notes TEXT,
+                    items_json TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """);
+
+            // Pharmacy Billing & Receipts
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS pharmacy_bills (
+                    id TEXT PRIMARY KEY,
+                    bill_number TEXT UNIQUE NOT NULL,
+                    order_id TEXT,
+                    patient_id TEXT NOT NULL,
+                    patient_name TEXT NOT NULL,
+                    doctor_name TEXT,
+                    bill_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    subtotal_inr REAL DEFAULT 0,
+                    discount_inr REAL DEFAULT 0,
+                    gst_amount_inr REAL DEFAULT 0,
+                    total_inr REAL DEFAULT 0,
+                    payment_mode TEXT,
+                    payment_status TEXT,
+                    items_json TEXT
+                );
+            """);
+
             // Seed default doctor if none exists
             try (ResultSet rs = stmt.executeQuery("SELECT count(*) FROM doctors")) {
                 if (rs.next() && rs.getInt(1) == 0) {
@@ -252,6 +383,28 @@ public class DatabaseManager {
                     log.info("Initialized default consulting doctor: Dr. S. K. Mukherjee");
                 }
             }
+
+            // Seed default RBAC users if none exist: admin, doctor, pharmacist
+            try (ResultSet rs = stmt.executeQuery("SELECT count(*) FROM users")) {
+                if (rs.next() && rs.getInt(1) == 0) {
+                    stmt.execute("""
+                        INSERT INTO users (id, username, password_hash, full_name, role)
+                        VALUES ('usr-admin', 'admin', 'admin123', 'System Administrator', 'ADMIN');
+                    """);
+                    stmt.execute("""
+                        INSERT INTO users (id, username, password_hash, full_name, role)
+                        VALUES ('usr-doc', 'doctor', 'doctor123', 'Dr. S. K. Mukherjee, M.D. (Hom.)', 'DOCTOR');
+                    """);
+                    stmt.execute("""
+                        INSERT INTO users (id, username, password_hash, full_name, role)
+                        VALUES ('usr-pharma', 'pharmacist', 'pharma123', 'A. K. Sharma, D.Pharm (Hom.)', 'PHARMACIST');
+                    """);
+                    log.info("Initialized default RBAC users: admin, doctor, pharmacist");
+                }
+            }
+
+            // Seed inventory
+            PharmacyInventorySeeder.seedInventoryIfEmpty(conn);
 
             log.info("Clinic database schema initialized successfully.");
         }

@@ -133,11 +133,37 @@ public class LoginView extends StackPane {
         usernameField.setOnAction(e -> performLogin.run());
         passwordField.setOnAction(e -> performLogin.run());
 
+        // Role Presets Buttons
+        HBox roleBox = new HBox(8);
+        roleBox.setAlignment(Pos.CENTER);
+        Button adminBtn = new Button("Admin");
+        adminBtn.getStyleClass().addAll(Styles.BUTTON_OUTLINED, Styles.SMALL);
+        adminBtn.setOnAction(e -> {
+            usernameField.setText("admin");
+            passwordField.setText("admin123");
+        });
+
+        Button doctorBtn = new Button("Doctor");
+        doctorBtn.getStyleClass().addAll(Styles.BUTTON_OUTLINED, Styles.SMALL);
+        doctorBtn.setOnAction(e -> {
+            usernameField.setText("doctor");
+            passwordField.setText("doctor123");
+        });
+
+        Button pharmaBtn = new Button("Pharmacist");
+        pharmaBtn.getStyleClass().addAll(Styles.BUTTON_OUTLINED, Styles.SMALL);
+        pharmaBtn.setOnAction(e -> {
+            usernameField.setText("pharmacist");
+            passwordField.setText("pharma123");
+        });
+
+        roleBox.getChildren().addAll(new Label("Quick Switch:"), adminBtn, doctorBtn, pharmaBtn);
+
         // Footer info
         Separator sep2 = new Separator();
         HBox footerBox = new HBox(8);
         footerBox.setAlignment(Pos.CENTER);
-        Label hintLabel = new Label("Default: admin / admin123 | Argon2id Vault Encryption");
+        Label hintLabel = new Label("RBAC Privileges: Admin | Doctor | Pharmacist");
         hintLabel.getStyleClass().add(Styles.TEXT_MUTED);
         hintLabel.setFont(Font.font("System", 11));
         footerBox.getChildren().add(hintLabel);
@@ -146,6 +172,7 @@ public class LoginView extends StackPane {
                 brandTitle, brandSubtitle, sep1,
                 authTitle, authDesc,
                 userBox, passBox,
+                roleBox,
                 errorLabel,
                 unlockBtn,
                 sep2, footerBox

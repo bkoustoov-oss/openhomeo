@@ -400,6 +400,624 @@ public class ClinicDao {
         return Optional.empty();
     }
 
+    public List<User> getAllUsers() throws SQLException {
+        List<User> list = new ArrayList<>();
+        String sql = "SELECT * FROM users ORDER BY full_name ASC";
+        try (Connection conn = dbManager.getClinicConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            while (rs.next()) {
+                list.add(new User(
+                        rs.getString("id"),
+                        rs.getString("username"),
+                        rs.getString("password_hash"),
+                        rs.getString("full_name"),
+                        User.UserRole.valueOf(rs.getString("role")),
+                        rs.getTimestamp("created_at").toInstant()
+                ));
+            }
+        }
+        return list;
+    }
+
+    // =========================================================================
+    // PAST MEDICATIONS & SUPPRESSIONS
+    // =========================================================================
+
+    public PastMedication savePastMedication(PastMedication m) throws SQLException {
+        String sql = """
+            INSERT INTO consultation_past_medications (id, consultation_id, patient_id, drug_name, category, duration, dosage, suppressed_symptoms, antidote_remedy, recorded_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        """;
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, m.id());
+            ps.setString(2, m.consultationId());
+            ps.setString(3, m.patientId());
+            ps.setString(4, m.drugName());
+            ps.setString(5, m.category());
+            ps.setString(6, m.duration());
+            ps.setString(7, m.dosage());
+            ps.setString(8, m.suppressedSymptoms());
+            ps.setString(9, m.antidoteRemedy());
+            ps.setTimestamp(10, Timestamp.from(m.recordedAt()));
+            ps.executeUpdate();
+        }
+        return m;
+    }
+
+    public List<PastMedication> getPastMedicationsByPatient(String patientId) throws SQLException {
+        List<PastMedication> list = new ArrayList<>();
+        String sql = "SELECT * FROM consultation_past_medications WHERE patient_id = ? ORDER BY recorded_at DESC";
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, patientId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    list.add(new PastMedication(
+                            rs.getString("id"),
+                            rs.getString("consultation_id"),
+                            rs.getString("patient_id"),
+                            rs.getString("drug_name"),
+                            rs.getString("category"),
+                            rs.getString("duration"),
+                            rs.getString("dosage"),
+                            rs.getString("suppressed_symptoms"),
+                            rs.getString("antidote_remedy"),
+                            rs.getTimestamp("recorded_at").toInstant()
+                    ));
+                }
+            }
+        }
+        return list;
+    }
+
+    public void deletePastMedication(String id) throws SQLException {
+        String sql = "DELETE FROM consultation_past_medications WHERE id = ?";
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, id);
+            ps.executeUpdate();
+        }
+    }
+
+    // =========================================================================
+    // REMEDY SUPERSEDE AUDIT (CASE STUDY & ML DATABASE)
+    // =========================================================================
+
+    public RemedySupersedeAudit saveSupersedeAudit(RemedySupersedeAudit a) throws SQLException {
+        String sql = """
+            INSERT INTO remedy_supersede_audit (id, consultation_id, patient_id, doctor_id, suggested_remedy_id,
+                                                suggested_remedy_name, prescribed_remedy_id, prescribed_remedy_name,
+                                                nullification_reason, clinical_case_notes, case_study_tag, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        """;
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, a.id());
+            ps.setString(2, a.consultationId());
+            ps.setString(3, a.patientId());
+            ps.setString(4, a.doctorId());
+            ps.setString(5, a.suggestedRemedyId());
+            ps.setString(6, a.suggestedRemedyName());
+            ps.setString(7, a.prescribedRemedyId());
+            ps.setString(8, a.prescribedRemedyName());
+            ps.setString(9, a.nullificationReason());
+            ps.setString(10, a.clinicalCaseNotes());
+            ps.setString(11, a.caseStudyTag());
+            ps.setTimestamp(12, Timestamp.from(a.createdAt()));
+            ps.executeUpdate();
+        }
+        return a;
+    }
+
+    public List<RemedySupersedeAudit> getAllSupersedeAudits() throws SQLException {
+        List<RemedySupersedeAudit> list = new ArrayList<>();
+        String sql = "SELECT * FROM remedy_supersede_audit ORDER BY created_at DESC";
+        try (Connection conn = dbManager.getClinicConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            while (rs.next()) {
+                list.add(new RemedySupersedeAudit(
+                        rs.getString("id"),
+                        rs.getString("consultation_id"),
+                        rs.getString("patient_id"),
+                        rs.getString("doctor_id"),
+                        rs.getString("suggested_remedy_id"),
+                        rs.getString("suggested_remedy_name"),
+                        rs.getString("prescribed_remedy_id"),
+                        rs.getString("prescribed_remedy_name"),
+                        rs.getString("nullification_reason"),
+                        rs.getString("clinical_case_notes"),
+                        rs.getString("case_study_tag"),
+                        rs.getTimestamp("created_at").toInstant()
+                ));
+            }
+        }
+        return list;
+    }
+
+    // =========================================================================
+    // MEDICINE INVENTORY / STOCK REGISTER
+    // =========================================================================
+
+    public MedicineInventoryItem saveInventoryItem(MedicineInventoryItem item) throws SQLException {
+        String sql = """
+            INSERT INTO medicine_inventory (id, remedy_id, medicine_name, company_name, form, potency,
+                                            batch_number, expiry_date, current_stock_qty, reorder_level,
+                                            unit_price_inr, rack_location, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        """;
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, item.id());
+            ps.setString(2, item.remedyId());
+            ps.setString(3, item.medicineName());
+            ps.setString(4, item.companyName());
+            ps.setString(5, item.form());
+            ps.setString(6, item.potency());
+            ps.setString(7, item.batchNumber());
+            ps.setString(8, item.expiryDate() != null ? item.expiryDate().toString() : null);
+            ps.setInt(9, item.currentStockQty());
+            ps.setInt(10, item.reorderLevel());
+            ps.setDouble(11, item.unitPriceInr());
+            ps.setString(12, item.rackLocation());
+            ps.setTimestamp(13, Timestamp.from(item.updatedAt()));
+            ps.executeUpdate();
+        }
+        return item;
+    }
+
+    public void updateInventoryItem(MedicineInventoryItem item) throws SQLException {
+        String sql = """
+            UPDATE medicine_inventory
+            SET medicine_name = ?, company_name = ?, form = ?, potency = ?, batch_number = ?,
+                expiry_date = ?, current_stock_qty = ?, reorder_level = ?, unit_price_inr = ?,
+                rack_location = ?, updated_at = ?
+            WHERE id = ?;
+        """;
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, item.medicineName());
+            ps.setString(2, item.companyName());
+            ps.setString(3, item.form());
+            ps.setString(4, item.potency());
+            ps.setString(5, item.batchNumber());
+            ps.setString(6, item.expiryDate() != null ? item.expiryDate().toString() : null);
+            ps.setInt(7, item.currentStockQty());
+            ps.setInt(8, item.reorderLevel());
+            ps.setDouble(9, item.unitPriceInr());
+            ps.setString(10, item.rackLocation());
+            ps.setTimestamp(11, Timestamp.from(Instant.now()));
+            ps.setString(12, item.id());
+            ps.executeUpdate();
+        }
+    }
+
+    public void adjustStock(String id, int deltaQty) throws SQLException {
+        String sql = "UPDATE medicine_inventory SET current_stock_qty = MAX(0, current_stock_qty + ?), updated_at = CURRENT_TIMESTAMP WHERE id = ?";
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, deltaQty);
+            ps.setString(2, id);
+            ps.executeUpdate();
+        }
+    }
+
+    public void deleteInventoryItem(String id) throws SQLException {
+        String sql = "DELETE FROM medicine_inventory WHERE id = ?";
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, id);
+            ps.executeUpdate();
+        }
+    }
+
+    public List<MedicineInventoryItem> getAllInventoryItems() throws SQLException {
+        List<MedicineInventoryItem> list = new ArrayList<>();
+        String sql = "SELECT * FROM medicine_inventory ORDER BY medicine_name ASC, potency ASC";
+        try (Connection conn = dbManager.getClinicConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            while (rs.next()) {
+                list.add(mapInventoryItem(rs));
+            }
+        }
+        return list;
+    }
+
+    public List<MedicineInventoryItem> searchInventory(String query, String form, String potency, String company) throws SQLException {
+        List<MedicineInventoryItem> list = new ArrayList<>();
+        StringBuilder sb = new StringBuilder("SELECT * FROM medicine_inventory WHERE 1=1 ");
+        List<Object> params = new ArrayList<>();
+
+        if (query != null && !query.isBlank()) {
+            sb.append(" AND (medicine_name LIKE ? OR remedy_id LIKE ? OR rack_location LIKE ?) ");
+            String q = "%" + query.trim() + "%";
+            params.add(q);
+            params.add(q);
+            params.add(q);
+        }
+        if (form != null && !form.isBlank() && !form.equalsIgnoreCase("ALL FORMS")) {
+            sb.append(" AND form LIKE ? ");
+            params.add("%" + form.trim() + "%");
+        }
+        if (potency != null && !potency.isBlank() && !potency.equalsIgnoreCase("ALL POTENCIES")) {
+            sb.append(" AND potency = ? ");
+            params.add(potency.trim());
+        }
+        if (company != null && !company.isBlank() && !company.equalsIgnoreCase("ALL COMPANIES")) {
+            sb.append(" AND company_name LIKE ? ");
+            params.add("%" + company.trim() + "%");
+        }
+
+        sb.append(" ORDER BY medicine_name ASC, potency ASC LIMIT 200");
+
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sb.toString())) {
+            for (int i = 0; i < params.size(); i++) {
+                ps.setObject(i + 1, params.get(i));
+            }
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    list.add(mapInventoryItem(rs));
+                }
+            }
+        }
+        return list;
+    }
+
+    public List<MedicineInventoryItem> getLowStockItems() throws SQLException {
+        List<MedicineInventoryItem> list = new ArrayList<>();
+        String sql = "SELECT * FROM medicine_inventory WHERE current_stock_qty <= reorder_level ORDER BY current_stock_qty ASC";
+        try (Connection conn = dbManager.getClinicConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            while (rs.next()) {
+                list.add(mapInventoryItem(rs));
+            }
+        }
+        return list;
+    }
+
+    public void batchInsertInventory(List<MedicineInventoryItem> items) throws SQLException {
+        String sql = """
+            INSERT INTO medicine_inventory (id, remedy_id, medicine_name, company_name, form, potency,
+                                            batch_number, expiry_date, current_stock_qty, reorder_level,
+                                            unit_price_inr, rack_location, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        """;
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            for (MedicineInventoryItem item : items) {
+                ps.setString(1, item.id());
+                ps.setString(2, item.remedyId());
+                ps.setString(3, item.medicineName());
+                ps.setString(4, item.companyName());
+                ps.setString(5, item.form());
+                ps.setString(6, item.potency());
+                ps.setString(7, item.batchNumber());
+                ps.setString(8, item.expiryDate() != null ? item.expiryDate().toString() : null);
+                ps.setInt(9, item.currentStockQty());
+                ps.setInt(10, item.reorderLevel());
+                ps.setDouble(11, item.unitPriceInr());
+                ps.setString(12, item.rackLocation());
+                ps.setTimestamp(13, Timestamp.from(Instant.now()));
+                ps.addBatch();
+            }
+            ps.executeBatch();
+        }
+    }
+
+    // =========================================================================
+    // PHARMACY ORDERS & INTERNAL CONSULTATIONS
+    // =========================================================================
+
+    public PharmacyOrder createPharmacyOrder(PharmacyOrder order) throws SQLException {
+        String sqlOrder = """
+            INSERT INTO pharmacy_orders (id, order_number, consultation_id, patient_id, patient_name,
+                                         doctor_id, doctor_name, status, substitution_notes,
+                                         pharmacist_agreed_by, doctor_agreed_by, order_date, completed_date)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        """;
+        String sqlItem = """
+            INSERT INTO pharmacy_order_items (id, order_id, remedy_id, prescribed_remedy, prescribed_potency,
+                                              prescribed_form, instructions, substituted_remedy,
+                                              substituted_potency, substituted_form, company, quantity,
+                                              unit_price_inr, dispensed)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        """;
+
+        try (Connection conn = dbManager.getClinicConnection()) {
+            conn.setAutoCommit(false);
+            try (PreparedStatement psO = conn.prepareStatement(sqlOrder);
+                 PreparedStatement psI = conn.prepareStatement(sqlItem)) {
+                psO.setString(1, order.id());
+                psO.setString(2, order.orderNumber());
+                psO.setString(3, order.consultationId());
+                psO.setString(4, order.patientId());
+                psO.setString(5, order.patientName());
+                psO.setString(6, order.doctorId());
+                psO.setString(7, order.doctorName());
+                psO.setString(8, order.status().name());
+                psO.setString(9, order.substitutionNotes());
+                psO.setString(10, order.pharmacistAgreedBy());
+                psO.setString(11, order.doctorAgreedBy());
+                psO.setTimestamp(12, Timestamp.from(order.orderDate()));
+                psO.setTimestamp(13, order.completedDate() != null ? Timestamp.from(order.completedDate()) : null);
+                psO.executeUpdate();
+
+                if (order.items() != null) {
+                    for (PharmacyOrderItem it : order.items()) {
+                        psI.setString(1, it.id());
+                        psI.setString(2, order.id());
+                        psI.setString(3, it.remedyId());
+                        psI.setString(4, it.prescribedRemedy());
+                        psI.setString(5, it.prescribedPotency());
+                        psI.setString(6, it.prescribedForm());
+                        psI.setString(7, it.instructions());
+                        psI.setString(8, it.substitutedRemedy());
+                        psI.setString(9, it.substitutedPotency());
+                        psI.setString(10, it.substitutedForm());
+                        psI.setString(11, it.company());
+                        psI.setInt(12, it.quantity());
+                        psI.setDouble(13, it.unitPriceInr());
+                        psI.setBoolean(14, it.dispensed());
+                        psI.addBatch();
+                    }
+                    psI.executeBatch();
+                }
+                conn.commit();
+            } catch (Exception ex) {
+                conn.rollback();
+                throw ex;
+            } finally {
+                conn.setAutoCommit(true);
+            }
+        }
+        return order;
+    }
+
+    public void updatePharmacyOrderStatus(String orderId, PharmacyOrder.OrderStatus status,
+                                         String substitutionNotes, String doctorAgreedBy, String pharmacistAgreedBy) throws SQLException {
+        String sql = """
+            UPDATE pharmacy_orders
+            SET status = ?, substitution_notes = ?, doctor_agreed_by = ?, pharmacist_agreed_by = ?,
+                completed_date = CASE WHEN ? = 'DISPENSED' THEN CURRENT_TIMESTAMP ELSE completed_date END
+            WHERE id = ?;
+        """;
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, status.name());
+            ps.setString(2, substitutionNotes);
+            ps.setString(3, doctorAgreedBy);
+            ps.setString(4, pharmacistAgreedBy);
+            ps.setString(5, status.name());
+            ps.setString(6, orderId);
+            ps.executeUpdate();
+        }
+    }
+
+    public List<PharmacyOrder> getAllPharmacyOrders() throws SQLException {
+        List<PharmacyOrder> list = new ArrayList<>();
+        String sql = "SELECT * FROM pharmacy_orders ORDER BY order_date DESC";
+        try (Connection conn = dbManager.getClinicConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            while (rs.next()) {
+                list.add(mapPharmacyOrder(rs, conn));
+            }
+        }
+        return list;
+    }
+
+    public Optional<PharmacyOrder> getPharmacyOrderById(String orderId) throws SQLException {
+        String sql = "SELECT * FROM pharmacy_orders WHERE id = ?";
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, orderId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return Optional.of(mapPharmacyOrder(rs, conn));
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    // =========================================================================
+    // STOCK REORDER REQUESTS
+    // =========================================================================
+
+    public StockReorderRequest createReorderRequest(StockReorderRequest req) throws SQLException {
+        String sql = """
+            INSERT INTO stock_reorder_requests (id, request_number, requested_by_user, status, approved_by_user,
+                                                approval_date, total_estimated_inr, notes, items_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        """;
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, req.id());
+            ps.setString(2, req.requestNumber());
+            ps.setString(3, req.requestedByUser());
+            ps.setString(4, req.status().name());
+            ps.setString(5, req.approvedByUser());
+            ps.setTimestamp(6, req.approvalDate() != null ? Timestamp.from(req.approvalDate()) : null);
+            ps.setDouble(7, req.totalEstimatedInr());
+            ps.setString(8, req.notes());
+            ps.setString(9, req.itemsJson());
+            ps.setTimestamp(10, Timestamp.from(req.createdAt()));
+            ps.executeUpdate();
+        }
+        return req;
+    }
+
+    public void updateReorderStatus(String reqId, StockReorderRequest.ReorderStatus status, String approvedByUser) throws SQLException {
+        String sql = """
+            UPDATE stock_reorder_requests
+            SET status = ?, approved_by_user = ?, approval_date = CURRENT_TIMESTAMP
+            WHERE id = ?;
+        """;
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, status.name());
+            ps.setString(2, approvedByUser);
+            ps.setString(3, reqId);
+            ps.executeUpdate();
+        }
+    }
+
+    public List<StockReorderRequest> getAllReorderRequests() throws SQLException {
+        List<StockReorderRequest> list = new ArrayList<>();
+        String sql = "SELECT * FROM stock_reorder_requests ORDER BY created_at DESC";
+        try (Connection conn = dbManager.getClinicConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            while (rs.next()) {
+                Timestamp appDate = rs.getTimestamp("approval_date");
+                list.add(new StockReorderRequest(
+                        rs.getString("id"),
+                        rs.getString("request_number"),
+                        rs.getString("requested_by_user"),
+                        StockReorderRequest.ReorderStatus.valueOf(rs.getString("status")),
+                        rs.getString("approved_by_user"),
+                        appDate != null ? appDate.toInstant() : null,
+                        rs.getDouble("total_estimated_inr"),
+                        rs.getString("notes"),
+                        rs.getString("items_json"),
+                        rs.getTimestamp("created_at").toInstant()
+                ));
+            }
+        }
+        return list;
+    }
+
+    // =========================================================================
+    // PHARMACY BILLING
+    // =========================================================================
+
+    public PharmacyBill createPharmacyBill(PharmacyBill bill) throws SQLException {
+        String sql = """
+            INSERT INTO pharmacy_bills (id, bill_number, order_id, patient_id, patient_name, doctor_name,
+                                        bill_date, subtotal_inr, discount_inr, gst_amount_inr, total_inr,
+                                        payment_mode, payment_status, items_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        """;
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, bill.id());
+            ps.setString(2, bill.billNumber());
+            ps.setString(3, bill.orderId());
+            ps.setString(4, bill.patientId());
+            ps.setString(5, bill.patientName());
+            ps.setString(6, bill.doctorName());
+            ps.setTimestamp(7, Timestamp.from(bill.billDate()));
+            ps.setDouble(8, bill.subtotalInr());
+            ps.setDouble(9, bill.discountInr());
+            ps.setDouble(10, bill.gstAmountInr());
+            ps.setDouble(11, bill.totalInr());
+            ps.setString(12, bill.paymentMode());
+            ps.setString(13, bill.paymentStatus());
+            ps.setString(14, bill.itemsJson());
+            ps.executeUpdate();
+        }
+        return bill;
+    }
+
+    public List<PharmacyBill> getAllPharmacyBills() throws SQLException {
+        List<PharmacyBill> list = new ArrayList<>();
+        String sql = "SELECT * FROM pharmacy_bills ORDER BY bill_date DESC";
+        try (Connection conn = dbManager.getClinicConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            while (rs.next()) {
+                list.add(new PharmacyBill(
+                        rs.getString("id"),
+                        rs.getString("bill_number"),
+                        rs.getString("order_id"),
+                        rs.getString("patient_id"),
+                        rs.getString("patient_name"),
+                        rs.getString("doctor_name"),
+                        rs.getTimestamp("bill_date").toInstant(),
+                        rs.getDouble("subtotal_inr"),
+                        rs.getDouble("discount_inr"),
+                        rs.getDouble("gst_amount_inr"),
+                        rs.getDouble("total_inr"),
+                        rs.getString("payment_mode"),
+                        rs.getString("payment_status"),
+                        rs.getString("items_json")
+                ));
+            }
+        }
+        return list;
+    }
+
+    private MedicineInventoryItem mapInventoryItem(ResultSet rs) throws SQLException {
+        String exp = rs.getString("expiry_date");
+        return new MedicineInventoryItem(
+                rs.getString("id"),
+                rs.getString("remedy_id"),
+                rs.getString("medicine_name"),
+                rs.getString("company_name"),
+                rs.getString("form"),
+                rs.getString("potency"),
+                rs.getString("batch_number"),
+                exp != null ? LocalDate.parse(exp) : null,
+                rs.getInt("current_stock_qty"),
+                rs.getInt("reorder_level"),
+                rs.getDouble("unit_price_inr"),
+                rs.getString("rack_location"),
+                rs.getTimestamp("updated_at").toInstant()
+        );
+    }
+
+    private PharmacyOrder mapPharmacyOrder(ResultSet rs, Connection conn) throws SQLException {
+        String orderId = rs.getString("id");
+        List<PharmacyOrderItem> items = new ArrayList<>();
+        String sqlI = "SELECT * FROM pharmacy_order_items WHERE order_id = ?";
+        try (PreparedStatement psI = conn.prepareStatement(sqlI)) {
+            psI.setString(1, orderId);
+            try (ResultSet rsI = psI.executeQuery()) {
+                while (rsI.next()) {
+                    items.add(new PharmacyOrderItem(
+                            rsI.getString("id"),
+                            orderId,
+                            rsI.getString("remedy_id"),
+                            rsI.getString("prescribed_remedy"),
+                            rsI.getString("prescribed_potency"),
+                            rsI.getString("prescribed_form"),
+                            rsI.getString("instructions"),
+                            rsI.getString("substituted_remedy"),
+                            rsI.getString("substituted_potency"),
+                            rsI.getString("substituted_form"),
+                            rsI.getString("company"),
+                            rsI.getInt("quantity"),
+                            rsI.getDouble("unit_price_inr"),
+                            rsI.getBoolean("dispensed")
+                    ));
+                }
+            }
+        }
+
+        Timestamp compDate = rs.getTimestamp("completed_date");
+        return new PharmacyOrder(
+                orderId,
+                rs.getString("order_number"),
+                rs.getString("consultation_id"),
+                rs.getString("patient_id"),
+                rs.getString("patient_name"),
+                rs.getString("doctor_id"),
+                rs.getString("doctor_name"),
+                PharmacyOrder.OrderStatus.valueOf(rs.getString("status")),
+                rs.getString("substitution_notes"),
+                rs.getString("pharmacist_agreed_by"),
+                rs.getString("doctor_agreed_by"),
+                rs.getTimestamp("order_date").toInstant(),
+                compDate != null ? compDate.toInstant() : null,
+                items
+        );
+    }
+
     // =========================================================================
     // MAPPERS
     // =========================================================================

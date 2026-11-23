@@ -5,7 +5,10 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
+import javafx.scene.text.Font;
+import javafx.scene.text.FontWeight;
 import javafx.stage.FileChooser;
+import org.openhomeo.core.ai.EntryPointSuggestionEngine;
 import org.openhomeo.core.db.ClinicDao;
 import org.openhomeo.core.db.MasterKnowledgeDao;
 import org.openhomeo.core.model.*;
@@ -24,8 +27,13 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Classical Case-Taking Workstation (L-S-M-C Framework, Enlisted Doctor Management,
- * Posology Prescription Generator, and Structured PDF Printing with Auto-Fit).
+ * Classical Case-Taking Workstation:
+ * - Hahnemannian L-S-M-C Framework
+ * - Intelligent Entry-Point Medicine Suggestion Engine with Doctor Supersede / Nullification Case Study Database
+ * - Earlier Medications, Suppressions & Drug Miasm Tracking
+ * - Enlisted Practitioner Management
+ * - Posology Prescription Generator & Dispatch to Dispensary
+ * - Structured PDF Printing with Auto-Fit Single Page option
  */
 public class CaseTakingView extends BorderPane {
     private static final Logger log = LoggerFactory.getLogger(CaseTakingView.class);
@@ -34,10 +42,13 @@ public class CaseTakingView extends BorderPane {
     private final MasterKnowledgeDao masterDao;
     private final SymptomClipboard clipboard;
     private final PrescriptionPdfService pdfService = new PrescriptionPdfService();
+    private final EntryPointSuggestionEngine suggestionEngine = new EntryPointSuggestionEngine();
 
+    // Patient & Doctor selection
     private final ComboBox<PatientItem> patientCombo;
     private final ComboBox<DoctorItem> doctorCombo;
 
+    // Case Fields
     private final TextArea chiefComplaintArea;
     private final TextField locationField;
     private final TextField sensationField;
@@ -46,6 +57,15 @@ public class CaseTakingView extends BorderPane {
     private final TextArea mindArea;
     private final TextArea physicalsArea;
     private final TextArea heringsLawArea;
+
+    // Earlier Medications
+    private final ListView<String> pastMedListView;
+    private final List<PastMedication> currentPatientPastMeds = new ArrayList<>();
+
+    // Intelligent Suggestion
+    private final Label suggestionLabel;
+    private final Label suggestionReasonLabel;
+    private EntryPointSuggestionEngine.SuggestedRemedy currentSuggestedRemedy = null;
 
     // Prescription Controls
     private final ComboBox<RemedyItem> remedyCombo;
@@ -63,29 +83,31 @@ public class CaseTakingView extends BorderPane {
     public record PatientItem(Patient patient) {
         @Override
         public String toString() {
-            return String.format("[%s] %s %s", patient.caseNumber(), patient.firstName(), patient.lastName());
+            return String.format("[%s] %s %s (%s)", patient.caseNumber(), patient.firstName(), patient.lastName(),
+                    patient.constitutionalType() != null ? patient.constitutionalType() : "General");
         }
     }
 
     public record DoctorItem(Doctor doctor) {
         @Override
         public String toString() {
-            return doctor.displayTitle();
+            return String.format("%s, %s", doctor.fullName(), doctor.qualification() != null ? doctor.qualification() : "");
         }
     }
 
     public record RemedyItem(Remedy remedy) {
         @Override
         public String toString() {
-            String common = remedy.commonName() != null ? " - " + remedy.commonName() : "";
-            return String.format("%s (%s)%s", remedy.fullName(), remedy.abbr(), common);
+            return String.format("%s (%s)", remedy.fullName(), remedy.abbr());
         }
     }
 
-    public record ConsultationItem(Consultation consultation, String displaySummary) {
+    public record ConsultationItem(Consultation consultation) {
         @Override
         public String toString() {
-            return displaySummary;
+            return String.format("%s - %s",
+                    consultation.consultDate().toString().substring(0, 10),
+                    consultation.chiefComplaint().length() > 35 ? consultation.chiefComplaint().substring(0, 32) + "..." : consultation.chiefComplaint());
         }
     }
 
@@ -94,21 +116,29 @@ public class CaseTakingView extends BorderPane {
         this.masterDao = masterDao;
         this.clipboard = clipboard;
 
-        // Top Bar: Patient Selection & Doctor Selection
-        ToolBar topBar = new ToolBar();
+        setPadding(new Insets(10));
+
+        // 1. Top Bar: Patient & Doctor Selection
+        HBox topBar = new HBox(12);
+        topBar.setAlignment(Pos.CENTER_LEFT);
+        topBar.setPadding(new Insets(0, 0, 10, 0));
 
         patientCombo = new ComboBox<>();
-        patientCombo.setMinWidth(260);
         patientCombo.setPromptText("Select Patient...");
-        patientCombo.setOnAction(e -> loadPatientHistory());
+        patientCombo.setPrefWidth(300);
+        patientCombo.setOnAction(e -> {
+            loadPatientHistory();
+            loadPatientPastMedications();
+            computeEntryPointSuggestions();
+        });
 
         Button newPatBtn = new Button("New Patient");
         newPatBtn.getStyleClass().add(Styles.BUTTON_OUTLINED);
         newPatBtn.setOnAction(e -> showNewPatientDialog());
 
         doctorCombo = new ComboBox<>();
-        doctorCombo.setMinWidth(250);
-        doctorCombo.setPromptText("Consulting Doctor...");
+        doctorCombo.setPromptText("Select Attending Doctor...");
+        doctorCombo.setPrefWidth(340);
 
         Button manageDocsBtn = new Button("Enlist / Manage Doctors");
         manageDocsBtn.getStyleClass().add(Styles.BUTTON_OUTLINED);
@@ -117,34 +147,36 @@ public class CaseTakingView extends BorderPane {
         statusLabel = new Label("Ready");
         statusLabel.getStyleClass().add(Styles.TEXT_MUTED);
 
-        topBar.getItems().addAll(
+        topBar.getChildren().addAll(
                 new Label("Patient:"), patientCombo, newPatBtn,
-                new Separator(),
                 new Label("Doctor:"), doctorCombo, manageDocsBtn,
-                new Separator(),
                 statusLabel
         );
         setTop(topBar);
 
-        // Center: L-S-M-C Form + Prescriptions in SplitPane
+        // 2. Central Split: Form (Left) & History (Right)
         SplitPane splitPane = new SplitPane();
 
-        // Left Form: Case Taking
+        // Left Panel: Case-Taking Form
         VBox formBox = new VBox(10);
-        formBox.setPadding(new Insets(15));
+        formBox.setPadding(new Insets(10, 15, 10, 5));
 
         chiefComplaintArea = new TextArea();
         chiefComplaintArea.setPromptText("Chief complaints, presenting symptoms, and clinical onset narrative...");
-        chiefComplaintArea.setPrefRowCount(3);
+        chiefComplaintArea.setPrefRowCount(2);
+        chiefComplaintArea.textProperty().addListener((o, ov, nv) -> computeEntryPointSuggestions());
 
         locationField = new TextField();
         locationField.setPromptText("L: Anatomical site, lateralization (Left/Right/Diagonal)...");
+        locationField.textProperty().addListener((o, ov, nv) -> computeEntryPointSuggestions());
 
         sensationField = new TextField();
         sensationField.setPromptText("S: Sensation character (burning, throbbing, stitching, cramping)...");
+        sensationField.textProperty().addListener((o, ov, nv) -> computeEntryPointSuggestions());
 
         modalityField = new TextField();
-        modalityField.setPromptText("M: Modalities (< worse / > better: time, temperature, motion, weather)...");
+        modalityField.setPromptText("M: Modalities (< worse / > better: time, temperature, motion, weather)..");
+        modalityField.textProperty().addListener((o, ov, nv) -> computeEntryPointSuggestions());
 
         concomitantField = new TextField();
         concomitantField.setPromptText("C: Concomitants (accompanying un-related symptoms)...");
@@ -152,10 +184,73 @@ public class CaseTakingView extends BorderPane {
         mindArea = new TextArea();
         mindArea.setPromptText("Mind & Disposition: Mental generals, emotional triggers, fears, weeping, irritability...");
         mindArea.setPrefRowCount(2);
+        mindArea.textProperty().addListener((o, ov, nv) -> computeEntryPointSuggestions());
 
         physicalsArea = new TextArea();
         physicalsArea.setPromptText("Physical Generals: Thermals (hot/chilly), thirst, cravings, aversions, sleep, dreams...");
         physicalsArea.setPrefRowCount(2);
+        physicalsArea.textProperty().addListener((o, ov, nv) -> computeEntryPointSuggestions());
+
+        // --- Earlier Medications Card ---
+        VBox pastMedCard = new VBox(6);
+        pastMedCard.setPadding(new Insets(8, 12, 8, 12));
+        pastMedCard.setStyle("-fx-background-color: #f8fafc; -fx-border-color: #cbd5e1; -fx-border-radius: 8px;");
+
+        HBox pastMedHead = new HBox(10);
+        pastMedHead.setAlignment(Pos.CENTER_LEFT);
+        Label pastMedTitle = new Label("Earlier Medications, Suppressions & Drug Miasm History");
+        pastMedTitle.setFont(Font.font("System", FontWeight.BOLD, 12));
+        Region spacer1 = new Region();
+        HBox.setHgrow(spacer1, Priority.ALWAYS);
+        Button addPastMedBtn = new Button("+ Log Earlier Medication / Suppression");
+        addPastMedBtn.getStyleClass().addAll(Styles.BUTTON_OUTLINED, Styles.SMALL);
+        addPastMedBtn.setOnAction(e -> showAddPastMedicationDialog());
+        pastMedHead.getChildren().addAll(pastMedTitle, spacer1, addPastMedBtn);
+
+        pastMedListView = new ListView<>();
+        pastMedListView.setPrefHeight(65);
+        pastMedCard.getChildren().addAll(pastMedHead, pastMedListView);
+
+        // --- Intelligent Entry-Point Suggestion Card ---
+        VBox suggestionCard = new VBox(6);
+        suggestionCard.setPadding(new Insets(10, 12, 10, 12));
+        suggestionCard.setStyle("-fx-background-color: #f0fdf4; -fx-border-color: #86efac; -fx-border-radius: 8px;");
+
+        HBox sugTop = new HBox(10);
+        sugTop.setAlignment(Pos.CENTER_LEFT);
+        Label sugTitle = new Label("⚡ Intelligent Entry-Point Suggestion Engine");
+        sugTitle.setFont(Font.font("System", FontWeight.BOLD, 12));
+        sugTitle.setStyle("-fx-text-fill: #166534;");
+
+        Region spacer2 = new Region();
+        HBox.setHgrow(spacer2, Priority.ALWAYS);
+
+        Button computeBtn = new Button("🔄 Re-Analyze Entry Points");
+        computeBtn.getStyleClass().add(Styles.SMALL);
+        computeBtn.setOnAction(e -> computeEntryPointSuggestions());
+        sugTop.getChildren().addAll(sugTitle, spacer2, computeBtn);
+
+        suggestionLabel = new Label("Enter symptoms above to trigger dynamic entry-point recommendations.");
+        suggestionLabel.setFont(Font.font("System", FontWeight.BOLD, 13));
+        suggestionLabel.setStyle("-fx-text-fill: #15803d;");
+
+        suggestionReasonLabel = new Label();
+        suggestionReasonLabel.setWrapText(true);
+        suggestionReasonLabel.setStyle("-fx-text-fill: #374151; -fx-font-size: 11px;");
+
+        HBox sugActions = new HBox(12);
+        sugActions.setAlignment(Pos.CENTER_LEFT);
+
+        Button acceptSugBtn = new Button("✅ Accept Suggestion to Prescription");
+        acceptSugBtn.getStyleClass().addAll(Styles.SUCCESS, Styles.SMALL);
+        acceptSugBtn.setOnAction(e -> acceptSuggestionToPrescription());
+
+        Button supersedeBtn = new Button("🤝 Doctor Supersede & Case Study Note");
+        supersedeBtn.getStyleClass().addAll(Styles.WARNING, Styles.SMALL);
+        supersedeBtn.setOnAction(e -> showSupersedeAuditDialog());
+
+        sugActions.getChildren().addAll(acceptSugBtn, supersedeBtn);
+        suggestionCard.getChildren().addAll(sugTop, suggestionLabel, suggestionReasonLabel, sugActions);
 
         heringsLawArea = new TextArea();
         heringsLawArea.setPromptText("Hering's Law Evaluation: Direction of cure progression (inside-out, above-downward)...");
@@ -164,24 +259,28 @@ public class CaseTakingView extends BorderPane {
         // Prescription Box
         TitledPane prescPane = new TitledPane();
         prescPane.setText("Prescription (℞) & Posology Dispensation");
+        prescPane.setExpanded(true);
+
         GridPane prescGrid = new GridPane();
         prescGrid.setHgap(10);
         prescGrid.setVgap(8);
         prescGrid.setPadding(new Insets(10));
 
         remedyCombo = new ComboBox<>();
-        remedyCombo.setMinWidth(300);
-        remedyCombo.setPromptText("Select Prescribed Remedy...");
+        remedyCombo.setPromptText("Select Remedy...");
+        remedyCombo.setPrefWidth(280);
 
-        potencyField = new TextField("200C");
-        potencyField.setPromptText("Potency (e.g. 30C, 200C, 1M, LM 0/1)");
+        potencyField = new TextField("200");
+        potencyField.setPrefWidth(80);
 
         scaleCombo = new ComboBox<>();
         scaleCombo.getItems().addAll(Prescription.PotencyScale.values());
         scaleCombo.setValue(Prescription.PotencyScale.CENTESIMAL);
 
-        posologyField = new TextField("4 globules dry on tongue");
-        repetitionField = new TextField("Single dose, wait and watch");
+        posologyField = new TextField("4 globules / 1 dose");
+        posologyField.setPrefWidth(180);
+
+        repetitionField = new TextField("Single dose at bedtime, then placebo / SAC-LAC");
 
         prescGrid.add(new Label("Remedy:"), 0, 0);
         prescGrid.add(remedyCombo, 1, 0);
@@ -212,7 +311,7 @@ public class CaseTakingView extends BorderPane {
 
         autoFitCheck = new CheckBox("Auto-Fit to 1 Page (Prescription Slip)");
         autoFitCheck.setSelected(true);
-        autoFitCheck.setTooltip(new Tooltip("Fits all consultation and prescription details onto exactly one A4 page without awkward page breaks"));
+        autoFitCheck.setTooltip(new Tooltip("Fits all clinical and prescription details onto exactly one A4 page without awkward page breaks"));
 
         actionBox.getChildren().addAll(saveConsultBtn, saveAndPrintBtn, autoFitCheck);
 
@@ -222,6 +321,8 @@ public class CaseTakingView extends BorderPane {
                 locationField, sensationField, modalityField, concomitantField,
                 new Label("Mind & Emotional Portrait:"), mindArea,
                 new Label("Physical Generals:"), physicalsArea,
+                pastMedCard,
+                suggestionCard,
                 new Label("Longitudinal Hering's Law Assessment:"), heringsLawArea,
                 prescPane,
                 actionBox
@@ -233,7 +334,7 @@ public class CaseTakingView extends BorderPane {
         // Right Panel: Consultation History
         VBox historyBox = new VBox(10);
         historyBox.setPadding(new Insets(15));
-        historyBox.setMinWidth(340);
+        historyBox.setMinWidth(320);
 
         Label histHeader = new Label("Patient Case History");
         histHeader.getStyleClass().add(Styles.TITLE_4);
@@ -250,7 +351,7 @@ public class CaseTakingView extends BorderPane {
         historyBox.getChildren().addAll(histHeader, historyList, histBtnBox);
 
         splitPane.getItems().addAll(formScroll, historyBox);
-        splitPane.setDividerPositions(0.65);
+        splitPane.setDividerPositions(0.66);
         setCenter(splitPane);
 
         loadInitialData();
@@ -258,41 +359,38 @@ public class CaseTakingView extends BorderPane {
 
     private void loadInitialData() {
         try {
-            // Load patients
+            // Load Patients
             patientCombo.getItems().clear();
-            for (Patient p : clinicDao.listPatients(null)) {
+            for (Patient p : clinicDao.listPatients("")) {
                 patientCombo.getItems().add(new PatientItem(p));
             }
             if (!patientCombo.getItems().isEmpty()) {
                 patientCombo.getSelectionModel().select(0);
-                loadPatientHistory();
             }
 
-            // Load doctors
-            loadDoctors();
-
-            // Load remedies for prescription
-            remedyCombo.getItems().clear();
-            for (Remedy r : masterDao.getAllRemedies()) {
-                remedyCombo.getItems().add(new RemedyItem(r));
-            }
-        } catch (Exception e) {
-            log.error("Failed to load initial clinical data", e);
-        }
-    }
-
-    private void loadDoctors() {
-        doctorCombo.getItems().clear();
-        try {
-            List<Doctor> docs = clinicDao.getActiveDoctors();
-            for (Doctor d : docs) {
+            // Load Doctors
+            doctorCombo.getItems().clear();
+            for (Doctor d : clinicDao.getActiveDoctors()) {
                 doctorCombo.getItems().add(new DoctorItem(d));
             }
             if (!doctorCombo.getItems().isEmpty()) {
                 doctorCombo.getSelectionModel().select(0);
             }
+
+            // Load Remedies for Prescription
+            remedyCombo.getItems().clear();
+            for (Remedy r : masterDao.getAllRemedies()) {
+                remedyCombo.getItems().add(new RemedyItem(r));
+            }
+            if (!remedyCombo.getItems().isEmpty()) {
+                remedyCombo.getSelectionModel().select(0);
+            }
+
+            loadPatientHistory();
+            loadPatientPastMedications();
+            computeEntryPointSuggestions();
         } catch (Exception e) {
-            log.error("Failed to load doctors", e);
+            log.error("Failed to load case taking initial data", e);
         }
     }
 
@@ -304,49 +402,269 @@ public class CaseTakingView extends BorderPane {
         try {
             List<Consultation> consults = clinicDao.getConsultationsForPatient(sel.patient.id());
             for (Consultation c : consults) {
-                String docTitle = "Dr. Practitioner";
-                if (c.doctorId() != null) {
-                    Optional<Doctor> dOpt = clinicDao.getDoctorById(c.doctorId());
-                    if (dOpt.isPresent()) {
-                        docTitle = dOpt.get().fullName();
-                    }
-                }
-
-                String desc = String.format("[%s] Doctor: %s\nComplaint: %s",
-                        c.consultDate().toString().substring(0, 10),
-                        docTitle,
-                        c.chiefComplaint());
-                if (c.prescriptions() != null && !c.prescriptions().isEmpty()) {
-                    Prescription p = c.prescriptions().get(0);
-                    desc += String.format("\n℞: %s %s (%s)", p.remedyName(), p.potency(), p.scale());
-                }
-                historyList.getItems().add(new ConsultationItem(c, desc));
+                historyList.getItems().add(new ConsultationItem(c));
             }
         } catch (Exception e) {
-            log.error("Failed to load consultations for patient", e);
+            log.error("Failed to load patient history", e);
         }
+    }
+
+    private void loadPatientPastMedications() {
+        pastMedListView.getItems().clear();
+        currentPatientPastMeds.clear();
+        PatientItem sel = patientCombo.getValue();
+        if (sel == null) return;
+
+        try {
+            List<PastMedication> list = clinicDao.getPastMedicationsByPatient(sel.patient.id());
+            currentPatientPastMeds.addAll(list);
+            for (PastMedication m : list) {
+                pastMedListView.getItems().add(String.format("• %s [%s] (%s) -> Suppressed: %s (Antidote: %s)",
+                        m.drugName(), m.category(), m.duration(),
+                        m.suppressedSymptoms() != null ? m.suppressedSymptoms() : "None",
+                        m.antidoteRemedy() != null ? m.antidoteRemedy() : "-"));
+            }
+            if (list.isEmpty()) {
+                pastMedListView.getItems().add("No prior allopathic / suppressive medications recorded.");
+            }
+        } catch (Exception e) {
+            log.error("Failed to load past medications", e);
+        }
+    }
+
+    private void showAddPastMedicationDialog() {
+        PatientItem sel = patientCombo.getValue();
+        if (sel == null) {
+            showAlert("No Patient Selected", "Please select or register a patient first.");
+            return;
+        }
+
+        Dialog<PastMedication> dlg = new Dialog<>();
+        dlg.setTitle("Record Prior Medication / Suppression History");
+        dlg.setHeaderText("Log prior allopathic, steroid, antibiotic, or Ayurvedic treatment to assess drug miasm and antidotes.");
+
+        ButtonType saveBtn = new ButtonType("Save Record", ButtonBar.ButtonData.OK_DONE);
+        dlg.getDialogPane().getButtonTypes().addAll(saveBtn, ButtonType.CANCEL);
+
+        GridPane grid = new GridPane();
+        grid.setHgap(10); grid.setVgap(10);
+        grid.setPadding(new Insets(16));
+
+        ComboBox<String> drugNameCombo = new ComboBox<>();
+        drugNameCombo.setEditable(true);
+        drugNameCombo.getItems().addAll(
+                "Corticosteroids / Prednisolone / Betamethasone",
+                "Broad-Spectrum Antibiotics (Amoxicillin, Azithromycin)",
+                "NSAIDs / Paracetamol / Ibuprofen",
+                "PPI / Pantoprazole / Omeprazole",
+                "Antihypertensives (Amlodipine, Telmisartan)",
+                "Oral Hypoglycemics (Metformin)",
+                "Previous Homeopathy (High Potencies without matching)",
+                "Ayurvedic Bhasma / Heavy Metal Preparations"
+        );
+        drugNameCombo.setValue("Corticosteroids / Prednisolone / Betamethasone");
+        drugNameCombo.setPrefWidth(300);
+
+        ComboBox<String> catCombo = new ComboBox<>();
+        catCombo.getItems().addAll("Allopathic / Steroid", "Antibiotics", "NSAID / Painkiller", "PPI / Antacid", "Cardiovascular", "Previous Homeopathy", "Ayurvedic");
+        catCombo.setValue("Allopathic / Steroid");
+
+        TextField durField = new TextField("6 months continuous");
+        TextField doseField = new TextField("10mg daily");
+        TextField suppField = new TextField("Cutaneous eczema suppressed abruptly; asthma started thereafter");
+        TextField antiField = new TextField("Nux vomica, Sulphur, Thuja");
+
+        grid.add(new Label("Drug / Medicine Name:"), 0, 0); grid.add(drugNameCombo, 1, 0);
+        grid.add(new Label("Category:"), 0, 1); grid.add(catCombo, 1, 1);
+        grid.add(new Label("Duration of Use:"), 0, 2); grid.add(durField, 1, 2);
+        grid.add(new Label("Dosage Pattern:"), 0, 3); grid.add(doseField, 1, 3);
+        grid.add(new Label("Suppressed Symptoms:"), 0, 4); grid.add(suppField, 1, 4);
+        grid.add(new Label("Antidote Remedy:"), 0, 5); grid.add(antiField, 1, 5);
+
+        dlg.getDialogPane().setContent(grid);
+
+        dlg.setResultConverter(b -> {
+            if (b == saveBtn && drugNameCombo.getValue() != null && !drugNameCombo.getValue().isBlank()) {
+                return new PastMedication(
+                        UUID.randomUUID().toString(),
+                        null,
+                        sel.patient.id(),
+                        drugNameCombo.getValue().trim(),
+                        catCombo.getValue(),
+                        durField.getText().trim(),
+                        doseField.getText().trim(),
+                        suppField.getText().trim(),
+                        antiField.getText().trim(),
+                        Instant.now()
+                );
+            }
+            return null;
+        });
+
+        dlg.showAndWait().ifPresent(pm -> {
+            try {
+                clinicDao.savePastMedication(pm);
+                loadPatientPastMedications();
+                statusLabel.setText("Recorded earlier medication: " + pm.drugName());
+            } catch (Exception ex) {
+                log.error("Failed to save past medication", ex);
+            }
+        });
+    }
+
+    private void computeEntryPointSuggestions() {
+        List<String> rubrics = new ArrayList<>();
+        for (SymptomClipboard.ClipboardItem it : clipboard.getActiveItems()) {
+            rubrics.add(it.rubric().fullPath());
+        }
+
+        EntryPointSuggestionEngine.EntryPointAnalysisResult result = suggestionEngine.analyze(
+                chiefComplaintArea.getText(),
+                locationField.getText(),
+                sensationField.getText(),
+                modalityField.getText(),
+                concomitantField.getText(),
+                mindArea.getText(),
+                physicalsArea.getText(),
+                rubrics
+        );
+
+        currentSuggestedRemedy = result.primarySuggestion();
+        suggestionLabel.setText(String.format("Recommended: %s (%s) — Match Score: %.0f%%",
+                currentSuggestedRemedy.remedyName(), currentSuggestedRemedy.suggestedPotencyScale(),
+                currentSuggestedRemedy.confidenceScore()));
+
+        suggestionReasonLabel.setText(result.clinicalRationaleSummary() + " | Differentiators: " +
+                String.join("; ", currentSuggestedRemedy.clinicalReasons()));
+    }
+
+    private void acceptSuggestionToPrescription() {
+        if (currentSuggestedRemedy == null) return;
+
+        // Select remedy in combo
+        for (RemedyItem it : remedyCombo.getItems()) {
+            if (it.remedy.id().equalsIgnoreCase(currentSuggestedRemedy.remedyId())) {
+                remedyCombo.getSelectionModel().select(it);
+                break;
+            }
+        }
+
+        if (currentSuggestedRemedy.suggestedPotencyScale().startsWith("Q")) {
+            potencyField.setText("Q");
+            scaleCombo.setValue(Prescription.PotencyScale.DECIMAL);
+            posologyField.setText("10-15 drops in 1/4 cup water");
+            repetitionField.setText("Three times daily before meals (TID)");
+        } else {
+            potencyField.setText("200");
+            scaleCombo.setValue(Prescription.PotencyScale.CENTESIMAL);
+            posologyField.setText("4 medicated globules / 1 dose");
+            repetitionField.setText("Night and morning for 3 days, then wait & watch");
+        }
+
+        statusLabel.setText("Accepted suggested remedy: " + currentSuggestedRemedy.remedyName());
+    }
+
+    private void showSupersedeAuditDialog() {
+        if (currentSuggestedRemedy == null) {
+            showAlert("No Active Suggestion", "Please enter symptoms to generate a recommendation first.");
+            return;
+        }
+
+        PatientItem sel = patientCombo.getValue();
+        if (sel == null) return;
+
+        Dialog<RemedySupersedeAudit> dlg = new Dialog<>();
+        dlg.setTitle("Doctor Supersede & Case Study Research Note");
+        dlg.setHeaderText("Record clinical justification for superseding the algorithmic recommendation.\nThis creates a high-value dataset for clinical case analysis and machine learning.");
+
+        ButtonType submitBtn = new ButtonType("Save Case Study Audit", ButtonBar.ButtonData.OK_DONE);
+        dlg.getDialogPane().getButtonTypes().addAll(submitBtn, ButtonType.CANCEL);
+
+        GridPane grid = new GridPane();
+        grid.setHgap(10); grid.setVgap(10);
+        grid.setPadding(new Insets(16));
+
+        Label sugLabel = new Label(currentSuggestedRemedy.remedyName() + " (" + currentSuggestedRemedy.remedyId() + ")");
+        sugLabel.setFont(Font.font("System", FontWeight.BOLD, 13));
+
+        ComboBox<RemedyItem> overrideCombo = new ComboBox<>();
+        overrideCombo.getItems().addAll(remedyCombo.getItems());
+        overrideCombo.setValue(remedyCombo.getValue());
+        overrideCombo.setPrefWidth(260);
+
+        TextField reasonField = new TextField("Midnight restless pacing and tongue with red triangular tip took precedence over motion modality");
+        reasonField.setPrefWidth(380);
+
+        ComboBox<String> tagCombo = new ComboBox<>();
+        tagCombo.getItems().addAll("Keynote Dominance", "Etiology over Modality", "Thermal Inversion", "Suppression Antidote", "Miasmatic Shift", "Constitutional Synthesis");
+        tagCombo.setValue("Keynote Dominance");
+
+        TextArea notesArea = new TextArea(
+                "Although the joint pains aggravated by motion pointed towards Bryonia, the patient exhibited intense midnight restlessness, tossing about in bed, and marked relief upon continued limbering up.\n" +
+                "In classical Kentian hierarchy, the mental and general restlessness superseded the particular physical motion modality."
+        );
+        notesArea.setPrefRowCount(4);
+
+        grid.add(new Label("Algorithmic Recommendation:"), 0, 0); grid.add(sugLabel, 1, 0);
+        grid.add(new Label("Doctor's Chosen Prescription:"), 0, 1); grid.add(overrideCombo, 1, 1);
+        grid.add(new Label("Supersede / Nullification Reason:"), 0, 2); grid.add(reasonField, 1, 2);
+        grid.add(new Label("Case Study Tag:"), 0, 3); grid.add(tagCombo, 1, 3);
+        grid.add(new Label("In-Depth Clinical Case Study Notes:"), 0, 4); grid.add(notesArea, 1, 4);
+
+        dlg.getDialogPane().setContent(grid);
+
+        dlg.setResultConverter(b -> {
+            if (b == submitBtn) {
+                RemedyItem chosen = overrideCombo.getValue();
+                DoctorItem doc = doctorCombo.getValue();
+                return new RemedySupersedeAudit(
+                        UUID.randomUUID().toString(),
+                        null,
+                        sel.patient.id(),
+                        doc != null ? doc.doctor.id() : null,
+                        currentSuggestedRemedy.remedyId(),
+                        currentSuggestedRemedy.remedyName(),
+                        chosen != null ? chosen.remedy.id() : "unknown",
+                        chosen != null ? chosen.remedy.fullName() : "Unknown",
+                        reasonField.getText().trim(),
+                        notesArea.getText().trim(),
+                        tagCombo.getValue(),
+                        Instant.now()
+                );
+            }
+            return null;
+        });
+
+        dlg.showAndWait().ifPresent(audit -> {
+            try {
+                clinicDao.saveSupersedeAudit(audit);
+                showAlert("Case Study Saved", "Doctor supersede audit recorded successfully for future comparative analysis and machine learning.");
+                statusLabel.setText("Recorded case study audit for " + audit.prescribedRemedyName());
+            } catch (Exception ex) {
+                log.error("Failed to save supersede audit", ex);
+            }
+        });
     }
 
     private void saveCurrentConsultation(boolean thenPrintPdf) {
         PatientItem sel = patientCombo.getValue();
         if (sel == null) {
-            showAlert("No Patient Selected", "Please select or create a patient before saving.");
+            showAlert("Validation Error", "Please select a patient before saving consultation.");
             return;
         }
 
         String complaint = chiefComplaintArea.getText().trim();
         if (complaint.isBlank()) {
-            showAlert("Empty Complaint", "Please enter the chief complaint.");
+            showAlert("Validation Error", "Chief complaint cannot be empty.");
             return;
         }
 
-        DoctorItem docItem = doctorCombo.getValue();
-        String doctorId = docItem != null ? docItem.doctor.id() : null;
-
         try {
             String consultId = UUID.randomUUID().toString();
+            DoctorItem docItem = doctorCombo.getValue();
+            String doctorId = docItem != null ? docItem.doctor.id() : null;
 
-            // Link clipboard rubrics
+            // Rubrics
             List<Consultation.SelectedRubric> selectedRubrics = new ArrayList<>();
             for (SymptomClipboard.ClipboardItem it : clipboard.getActiveItems()) {
                 selectedRubrics.add(new Consultation.SelectedRubric(
@@ -380,13 +698,38 @@ public class CaseTakingView extends BorderPane {
             );
 
             clinicDao.saveConsultation(c);
-            statusLabel.setText("Consultation saved successfully at " + LocalDate.now());
+
+            // Automatically dispatch order to Dispensary Pharmacy
+            if (!prescriptions.isEmpty()) {
+                Prescription pr = prescriptions.get(0);
+                String orderId = UUID.randomUUID().toString();
+                String orderNum = "ORD-" + LocalDate.now().getYear() + "-" + (System.currentTimeMillis() % 10000);
+                List<PharmacyOrderItem> orderItems = List.of(
+                        new PharmacyOrderItem(
+                                UUID.randomUUID().toString(), orderId, pr.remedyId(),
+                                pr.remedyName(), pr.potency() + " " + pr.scale().name(),
+                                "Dispensary Medicated Globules / Dilution",
+                                pr.posologyInstructions() + " | " + pr.repetitionFrequency(),
+                                null, null, null, "SBL / Reckeweg", 1, 100.0, false
+                        )
+                );
+                PharmacyOrder po = new PharmacyOrder(
+                        orderId, orderNum, consultId, sel.patient.id(),
+                        sel.patient.firstName() + " " + sel.patient.lastName(),
+                        doctorId, docItem != null ? docItem.doctor.fullName() : "Dr. Practitioner",
+                        PharmacyOrder.OrderStatus.ORDERED, null, null, null,
+                        Instant.now(), null, orderItems
+                );
+                clinicDao.createPharmacyOrder(po);
+            }
+
+            statusLabel.setText("Consultation saved and order dispatched to Pharmacy Dispensary.");
             loadPatientHistory();
 
             if (thenPrintPdf) {
                 exportPrescriptionToPdf(docItem != null ? docItem.doctor : null, sel.patient, c);
             } else {
-                showAlert("Success", "Consultation and prescription saved to patient record.");
+                showAlert("Success", "Consultation saved, prescription dispatched to Pharmacy Dispensary.");
             }
 
         } catch (Exception e) {
@@ -421,17 +764,15 @@ public class CaseTakingView extends BorderPane {
     private void exportPrescriptionToPdf(Doctor doctor, Patient patient, Consultation consultation) {
         try {
             FileChooser chooser = new FileChooser();
-            chooser.setTitle("Save Homeopathic Prescription PDF");
-            String defaultName = String.format("Prescription_%s_%s.pdf",
-                    patient.caseNumber().replace(" ", "_"),
-                    LocalDate.now().toString());
-            chooser.setInitialFileName(defaultName);
+            chooser.setTitle("Save Professional Prescription PDF");
             chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("PDF Documents (*.pdf)", "*.pdf"));
+            String patNameClean = patient != null ? (patient.firstName() + "_" + patient.lastName()).replaceAll("[^a-zA-Z0-9_]", "") : "Patient";
+            chooser.setInitialFileName(String.format("Prescription_%s_%s.pdf", patNameClean, LocalDate.now()));
 
             File targetFile = chooser.showSaveDialog(getScene().getWindow());
             if (targetFile != null) {
                 boolean autoFit = autoFitCheck.isSelected();
-                pdfService.generatePrescriptionPdf(doctor, patient, consultation, autoFit, targetFile);
+                pdfService.generatePrescriptionPdf(doctor, patient, consultation, currentPatientPastMeds, autoFit, targetFile);
 
                 statusLabel.setText("PDF exported successfully: " + targetFile.getName());
 
@@ -478,89 +819,59 @@ public class CaseTakingView extends BorderPane {
 
         // Enlist New Doctor Form
         GridPane grid = new GridPane();
-        grid.setHgap(8);
-        grid.setVgap(8);
+        grid.setHgap(8); grid.setVgap(8);
 
-        TextField nameField = new TextField();
-        nameField.setPromptText("Dr. Full Name (e.g. Dr. A. K. Roy)");
-
-        TextField regField = new TextField();
-        regField.setPromptText("Registration No. (e.g. WBH-12345 / CCH)");
-
-        TextField qualField = new TextField();
-        qualField.setPromptText("Qualifications (e.g. B.H.M.S., M.D. Hom.)");
-
-        TextField desigField = new TextField("Consulting Homeopathic Physician");
-        desigField.setPromptText("Designation");
-
-        TextField clinicField = new TextField("Classical Homeopathy Wellness Clinic");
-        clinicField.setPromptText("Clinic / Hospital Name");
-
-        TextField addrField = new TextField();
-        addrField.setPromptText("Address");
-
-        TextField phoneField = new TextField();
-        phoneField.setPromptText("Contact Phone");
-
-        TextField emailField = new TextField();
-        emailField.setPromptText("Email Address");
-
-        TextField sigField = new TextField("Authorized Signatory");
-        sigField.setPromptText("Signature / Stamp Notes");
+        TextField nameField = new TextField(); nameField.setPromptText("Dr. Full Name (e.g. Dr. A. K. Roy)");
+        TextField regField = new TextField(); regField.setPromptText("Registration No. (e.g. WBH-12345 / CCH)");
+        TextField qualField = new TextField(); qualField.setPromptText("Qualifications (e.g. B.H.M.S., M.D. Hom.)");
+        TextField desigField = new TextField("Consulting Homeopathic Physician"); desigField.setPromptText("Designation");
+        TextField clinicField = new TextField("Classical Homeopathy Wellness Clinic"); clinicField.setPromptText("Clinic / Hospital Name");
+        TextField addrField = new TextField(); addrField.setPromptText("Address");
+        TextField phoneField = new TextField(); phoneField.setPromptText("Contact Phone");
+        TextField emailField = new TextField(); emailField.setPromptText("Email Address");
+        TextField sigField = new TextField("Authorized Signatory"); sigField.setPromptText("Signature / Stamp Notes");
 
         grid.add(new Label("Full Name:"), 0, 0); grid.add(nameField, 1, 0);
-        grid.add(new Label("Reg. No:"), 0, 1); grid.add(regField, 1, 1);
-        grid.add(new Label("Qualification:"), 0, 2); grid.add(qualField, 1, 2);
+        grid.add(new Label("Registration No:"), 0, 1); grid.add(regField, 1, 1);
+        grid.add(new Label("Qualifications:"), 0, 2); grid.add(qualField, 1, 2);
         grid.add(new Label("Designation:"), 0, 3); grid.add(desigField, 1, 3);
         grid.add(new Label("Clinic Name:"), 0, 4); grid.add(clinicField, 1, 4);
-        grid.add(new Label("Address:"), 0, 5); grid.add(addrField, 1, 5);
+        grid.add(new Label("Clinic Address:"), 0, 5); grid.add(addrField, 1, 5);
         grid.add(new Label("Phone:"), 0, 6); grid.add(phoneField, 1, 6);
         grid.add(new Label("Email:"), 0, 7); grid.add(emailField, 1, 7);
-        grid.add(new Label("Sign Seal:"), 0, 8); grid.add(sigField, 1, 8);
+        grid.add(new Label("Signature Stamp:"), 0, 8); grid.add(sigField, 1, 8);
 
-        Button enlistBtn = new Button("Enlist This Doctor");
-        enlistBtn.getStyleClass().addAll(Styles.ACCENT);
-        enlistBtn.setOnAction(e -> {
-            String name = nameField.getText().trim();
-            if (name.isBlank()) {
-                showAlert("Validation", "Doctor full name is required.");
+        Button saveDocBtn = new Button("Enlist Doctor");
+        saveDocBtn.getStyleClass().add(Styles.SUCCESS);
+        saveDocBtn.setOnAction(e -> {
+            String n = nameField.getText().trim();
+            if (n.isBlank()) {
+                showAlert("Validation Error", "Doctor's full name is required.");
                 return;
             }
             try {
-                Doctor newDoc = new Doctor(
-                        UUID.randomUUID().toString(),
-                        name,
-                        regField.getText().trim(),
-                        qualField.getText().trim(),
-                        desigField.getText().trim(),
-                        clinicField.getText().trim(),
-                        addrField.getText().trim(),
-                        phoneField.getText().trim(),
-                        emailField.getText().trim(),
-                        sigField.getText().trim(),
-                        true,
-                        Instant.now()
+                Doctor d = new Doctor(
+                        UUID.randomUUID().toString(), n, regField.getText().trim(),
+                        qualField.getText().trim(), desigField.getText().trim(),
+                        clinicField.getText().trim(), addrField.getText().trim(),
+                        phoneField.getText().trim(), emailField.getText().trim(),
+                        sigField.getText().trim(), true, Instant.now()
                 );
-                clinicDao.saveDoctor(newDoc);
+                clinicDao.saveDoctor(d);
                 refreshList.run();
-                loadDoctors();
-                nameField.clear();
-                regField.clear();
-                qualField.clear();
-                showAlert("Doctor Enlisted", "Doctor " + name + " enlisted successfully.");
+                loadInitialData();
+                statusLabel.setText("Doctor enlisted: " + d.fullName());
+                nameField.clear(); regField.clear(); qualField.clear(); addrField.clear(); phoneField.clear(); emailField.clear();
             } catch (Exception ex) {
                 log.error("Failed to save doctor", ex);
-                showAlert("Error", "Could not enlist doctor: " + ex.getMessage());
+                showAlert("Error", "Could not save doctor: " + ex.getMessage());
             }
         });
 
         content.getChildren().addAll(
-                new Label("Currently Enlisted Doctors:"),
-                docListView,
+                new Label("Active & Enlisted Doctors:"), docListView,
                 new Separator(),
-                new Label("Enlist New Doctor:"),
-                grid,
-                enlistBtn
+                new Label("Enlist New Doctor Profile:"), grid, saveDocBtn
         );
 
         dialog.getDialogPane().setContent(content);
@@ -591,7 +902,14 @@ public class CaseTakingView extends BorderPane {
         TextField phoneField = new TextField();
         TextField emailField = new TextField();
         TextField addrField = new TextField();
-        TextField constField = new TextField("Phosphorus / Calcarea");
+
+        // Comprehensive Classical Homeopathic Constitution Dropdown
+        ComboBox<String> constCombo = new ComboBox<>();
+        constCombo.setEditable(true);
+        constCombo.getItems().addAll(HomeopathicConstitution.getAllDescriptions());
+        constCombo.setValue(HomeopathicConstitution.CARBONIC.getDescription());
+        constCombo.setPrefWidth(340);
+
         ComboBox<String> miasmCombo = new ComboBox<>();
         miasmCombo.getItems().addAll("PSORA", "SYCOSIS", "SYPHILIS", "TUBERCULAR");
         miasmCombo.setValue("PSORA");
@@ -604,7 +922,7 @@ public class CaseTakingView extends BorderPane {
         grid.add(new Label("Phone:"), 0, 5); grid.add(phoneField, 1, 5);
         grid.add(new Label("Email:"), 0, 6); grid.add(emailField, 1, 6);
         grid.add(new Label("Address:"), 0, 7); grid.add(addrField, 1, 7);
-        grid.add(new Label("Constitution:"), 0, 8); grid.add(constField, 1, 8);
+        grid.add(new Label("Constitution:"), 0, 8); grid.add(constCombo, 1, 8);
         grid.add(new Label("Miasm:"), 0, 9); grid.add(miasmCombo, 1, 9);
 
         dialog.getDialogPane().setContent(grid);
@@ -623,7 +941,7 @@ public class CaseTakingView extends BorderPane {
                             emailField.getText().trim(),
                             addrField.getText().trim(),
                             "O+",
-                            constField.getText().trim(),
+                            constCombo.getValue() != null ? constCombo.getValue().trim() : "Carbonic",
                             miasmCombo.getValue()
                     );
                 } catch (Exception e) {

@@ -14,6 +14,7 @@ import org.openhomeo.core.db.ClinicDao;
 import org.openhomeo.core.db.MasterKnowledgeDao;
 import org.openhomeo.core.image.ImageVaultService;
 import org.openhomeo.core.model.Rubric;
+import org.openhomeo.core.model.User;
 import org.openhomeo.core.repertory.RepertorizationEngine;
 import org.openhomeo.core.repertory.SymptomClipboard;
 import org.openhomeo.core.security.SecurityService;
@@ -112,15 +113,30 @@ public class MainWindow {
         caseTakingView = new CaseTakingView(clinicDao, masterDao, clipboard);
         Tab tabCase = new Tab("Clinical Case-Taking (L-S-M-C)", caseTakingView);
 
-        // Tab 3: Clinical Photos & Color Analysis
+        // Tab 3: Pharmacy Dispensary & Live Stock Register
+        PharmacyDispensaryView pharmacyView = new PharmacyDispensaryView(clinicDao, masterDao, securityService);
+        Tab tabPharmacy = new Tab("Pharmacy Dispensary & Stock Register", pharmacyView);
+
+        // Tab 4: Clinical Photos & Color Analysis
         imageViewer = new ClinicalImageViewer(clinicDao, imageVault);
         Tab tabImage = new Tab("Clinical Photographs & CIE-LAB", imageViewer);
 
-        // Tab 4: Materia Medica Library
+        // Tab 5: Materia Medica Library
         mmView = new MateriaMedicaView(masterDao);
         Tab tabMM = new Tab("Materia Medica Library", mmView);
 
-        tabPane.getTabs().addAll(tabRep, tabCase, tabImage, tabMM);
+        tabPane.getTabs().addAll(tabRep, tabCase, tabPharmacy, tabImage, tabMM);
+
+        // Role-based initial tab selection
+        if (securityService.getCurrentSession() != null) {
+            User u = securityService.getCurrentSession().user();
+            if (u.role() == User.UserRole.PHARMACIST) {
+                tabPane.getSelectionModel().select(tabPharmacy);
+            } else if (u.role() == User.UserRole.DOCTOR || u.role() == User.UserRole.HOMEOPATH) {
+                tabPane.getSelectionModel().select(tabCase);
+            }
+        }
+
         root.setCenter(tabPane);
     }
 
@@ -162,14 +178,15 @@ public class MainWindow {
         });
 
         String userDisplay = securityService.getCurrentSession() != null
-                ? securityService.getCurrentSession().user().fullName()
+                ? "[" + securityService.getCurrentSession().user().role().name() + "] " + securityService.getCurrentSession().user().fullName()
                 : "Practitioner";
         Label userLabel = new Label(userDisplay);
         userLabel.getStyleClass().add(Styles.TEXT_BOLD);
+        userLabel.setStyle("-fx-background-color: #e0f2fe; -fx-text-fill: #0369a1; -fx-padding: 4 8 4 8; -fx-background-radius: 6px;");
 
-        Button lockBtn = new Button("Lock");
+        Button lockBtn = new Button("Lock / Switch");
         lockBtn.getStyleClass().add(Styles.BUTTON_OUTLINED);
-        lockBtn.setTooltip(new Tooltip("Lock clinic database and return to login screen"));
+        lockBtn.setTooltip(new Tooltip("Lock session and switch user (Admin / Doctor / Pharmacist)"));
         lockBtn.setOnAction(e -> {
             securityService.clearSession();
             if (onLogout != null) {

@@ -37,14 +37,32 @@ public class PrescriptionPdfService {
                                         Consultation consultation,
                                         boolean autoFitSinglePage,
                                         File outputFile) throws Exception {
+        generatePrescriptionPdf(doctor, patient, consultation, java.util.Collections.emptyList(), autoFitSinglePage, outputFile);
+    }
+
+    public void generatePrescriptionPdf(Doctor doctor,
+                                        Patient patient,
+                                        Consultation consultation,
+                                        java.util.List<org.openhomeo.core.model.PastMedication> pastMedications,
+                                        boolean autoFitSinglePage,
+                                        File outputFile) throws Exception {
         try (FileOutputStream fos = new FileOutputStream(outputFile)) {
-            generatePrescriptionPdf(doctor, patient, consultation, autoFitSinglePage, fos);
+            generatePrescriptionPdf(doctor, patient, consultation, pastMedications, autoFitSinglePage, fos);
         }
     }
 
     public void generatePrescriptionPdf(Doctor doctor,
                                         Patient patient,
                                         Consultation consultation,
+                                        boolean autoFitSinglePage,
+                                        OutputStream outputStream) throws Exception {
+        generatePrescriptionPdf(doctor, patient, consultation, java.util.Collections.emptyList(), autoFitSinglePage, outputStream);
+    }
+
+    public void generatePrescriptionPdf(Doctor doctor,
+                                        Patient patient,
+                                        Consultation consultation,
+                                        java.util.List<org.openhomeo.core.model.PastMedication> pastMedications,
                                         boolean autoFitSinglePage,
                                         OutputStream outputStream) throws Exception {
 
@@ -163,6 +181,12 @@ public class PrescriptionPdfService {
         addInfoCell(patientTable, "Case No:", caseNo, fontLabel, fontValue);
         addInfoCell(patientTable, "Age / Gender:", ageGender, fontLabel, fontValue);
         addInfoCell(patientTable, "Phone:", phone, fontLabel, fontValue);
+
+        if (patient != null && patient.constitutionalType() != null && !patient.constitutionalType().isBlank()) {
+            addInfoCell(patientTable, "Constitution:", patient.constitutionalType(), fontLabel, fontValue);
+            addInfoCell(patientTable, "Miasm:", patient.miasmaticBackground() != null ? patient.miasmaticBackground() : "PSORA", fontLabel, fontValue);
+        }
+
         document.add(patientTable);
 
         // 3. Clinical Case-Taking & Symptoms Summary
@@ -198,6 +222,19 @@ public class PrescriptionPdfService {
             String phys = consultation.physicalGenerals() != null && !consultation.physicalGenerals().isBlank() ? consultation.physicalGenerals() : "-";
             addInfoCell(caseTable, "Mind & Dispositions:", mind, fontLabel, fontValue);
             addInfoCell(caseTable, "Physical Generals:", phys, fontLabel, fontValue);
+
+            // Earlier Medications & Suppressions if present
+            if (pastMedications != null && !pastMedications.isEmpty()) {
+                StringBuilder pastMedStr = new StringBuilder();
+                for (org.openhomeo.core.model.PastMedication pm : pastMedications) {
+                    if (!pastMedStr.isEmpty()) pastMedStr.append(" | ");
+                    pastMedStr.append(pm.drugName()).append(" (").append(pm.category()).append(", ").append(pm.duration()).append(")");
+                    if (pm.suppressedSymptoms() != null && !pm.suppressedSymptoms().isBlank()) {
+                        pastMedStr.append(" -> Suppressed: ").append(pm.suppressedSymptoms());
+                    }
+                }
+                addFullWidthRow(caseTable, "Earlier Medications & Suppressions:", pastMedStr.toString(), fontLabel, fontValue);
+            }
 
             // Analyzed Rubrics if present
             if (consultation.selectedRubrics() != null && !consultation.selectedRubrics().isEmpty()) {

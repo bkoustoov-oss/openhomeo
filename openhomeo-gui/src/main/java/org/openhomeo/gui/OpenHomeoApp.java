@@ -53,13 +53,27 @@ public class OpenHomeoApp extends Application {
         this.symptomClipboard = new SymptomClipboard();
         this.repertorizationEngine = new RepertorizationEngine();
 
-        // Ensure default practitioner user exists
+        // Ensure default RBAC users exist
         if (clinicDao.findUserByUsername("admin").isEmpty()) {
             String hash = securityService.hashPassword("admin123");
             clinicDao.createUser(new User(
-                    UUID.randomUUID().toString(), "admin", hash, "Dr. Practitioner", User.UserRole.ADMIN, Instant.now()
+                    UUID.randomUUID().toString(), "admin", hash, "Dr. System Administrator", User.UserRole.ADMIN, Instant.now()
             ));
             log.info("Created default administrator account: admin / admin123");
+        }
+        if (clinicDao.findUserByUsername("doctor").isEmpty()) {
+            String hash = securityService.hashPassword("doctor123");
+            clinicDao.createUser(new User(
+                    UUID.randomUUID().toString(), "doctor", hash, "Dr. S. K. Mukherjee, M.D. (Hom.)", User.UserRole.DOCTOR, Instant.now()
+            ));
+            log.info("Created default doctor account: doctor / doctor123");
+        }
+        if (clinicDao.findUserByUsername("pharmacist").isEmpty()) {
+            String hash = securityService.hashPassword("pharma123");
+            clinicDao.createUser(new User(
+                    UUID.randomUUID().toString(), "pharmacist", hash, "A. K. Sharma, D.Pharm (Hom.)", User.UserRole.PHARMACIST, Instant.now()
+            ));
+            log.info("Created default pharmacist account: pharmacist / pharma123");
         }
     }
 
