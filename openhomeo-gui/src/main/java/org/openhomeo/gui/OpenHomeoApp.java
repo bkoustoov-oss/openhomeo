@@ -69,17 +69,46 @@ public class OpenHomeoApp extends Application {
         Application.setUserAgentStylesheet(new PrimerLight().getUserAgentStylesheet());
 
         primaryStage.setTitle("OpenHomeo Workstation - Professional Edition");
-        primaryStage.setWidth(1280);
-        primaryStage.setHeight(850);
-        primaryStage.setMinWidth(1100);
-        primaryStage.setMinHeight(750);
+
+        // Load application branding icon
+        try {
+            var iconStream = OpenHomeoApp.class.getResourceAsStream("/icons/openhomeo.png");
+            if (iconStream != null) {
+                primaryStage.getIcons().add(new javafx.scene.image.Image(iconStream));
+            }
+        } catch (Exception e) {
+            log.warn("Could not load application icon: {}", e.getMessage());
+        }
+
+        // Screen adaptive dimensions
+        javafx.geometry.Rectangle2D screenBounds = javafx.stage.Screen.getPrimary().getVisualBounds();
+        double targetWidth = Math.min(1280, screenBounds.getWidth() * 0.95);
+        double targetHeight = Math.min(850, screenBounds.getHeight() * 0.92);
+
+        primaryStage.setWidth(targetWidth);
+        primaryStage.setHeight(targetHeight);
+        primaryStage.setMinWidth(Math.min(1050, targetWidth));
+        primaryStage.setMinHeight(Math.min(700, targetHeight));
 
         showLoginScreen(primaryStage);
 
+        // Center on screen
+        primaryStage.centerOnScreen();
+
+        // Bring to front over any active maximized windows
+        primaryStage.setAlwaysOnTop(true);
         primaryStage.show();
         primaryStage.toFront();
         primaryStage.requestFocus();
-        log.info("OpenHomeo workstation window presented on desktop.");
+
+        // Release topmost lock after presentation so window behaves normally
+        javafx.application.Platform.runLater(() -> {
+            primaryStage.setAlwaysOnTop(false);
+            primaryStage.requestFocus();
+        });
+
+        log.info("OpenHomeo workstation window presented on desktop at [x={}, y={}, w={}, h={}, showing={}]",
+                primaryStage.getX(), primaryStage.getY(), primaryStage.getWidth(), primaryStage.getHeight(), primaryStage.isShowing());
     }
 
     private void showLoginScreen(Stage primaryStage) {
