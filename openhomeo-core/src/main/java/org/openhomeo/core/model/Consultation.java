@@ -9,6 +9,7 @@ import java.util.List;
 public record Consultation(
         String id,
         String patientId,
+        String doctorId,               // Enlisted consulting doctor
         Instant consultDate,
         String chiefComplaint,         // Primary reason for encounter
         String locationNotes,          // L (Location & lateralization)
@@ -22,6 +23,16 @@ public record Consultation(
         List<SelectedRubric> selectedRubrics,
         List<Prescription> prescriptions
 ) {
+    public Consultation(String id, String patientId, Instant consultDate, String chiefComplaint,
+                        String locationNotes, String sensationNotes, String modalityNotes,
+                        String concomitantNotes, String mindDisposition, String physicalGenerals,
+                        String heringsLawAnalysis, String doctorNotes, List<SelectedRubric> selectedRubrics,
+                        List<Prescription> prescriptions) {
+        this(id, patientId, null, consultDate, chiefComplaint, locationNotes, sensationNotes,
+                modalityNotes, concomitantNotes, mindDisposition, physicalGenerals,
+                heringsLawAnalysis, doctorNotes, selectedRubrics, prescriptions);
+    }
+
     public record SelectedRubric(
             String rubricId,
             String fullPath,

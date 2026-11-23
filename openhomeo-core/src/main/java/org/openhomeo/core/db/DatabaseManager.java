@@ -9,6 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 
@@ -42,12 +43,27 @@ public class DatabaseManager {
 
     private void ensureMasterDatabaseSeeded() {
         File masterFile = new File(masterDbPath);
-        if (!masterFile.exists() || masterFile.length() == 0) {
-            log.info("Master repertory database not found at {}. Copying bundled seed...", masterDbPath);
+        boolean needsUpdate = !masterFile.exists() || masterFile.length() == 0;
+        if (!needsUpdate) {
+            try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + masterDbPath);
+                 Statement stmt = conn.createStatement();
+                 ResultSet rs = stmt.executeQuery("SELECT count(*) FROM remedies")) {
+                if (rs.next() && rs.getInt(1) < 100) {
+                    needsUpdate = true;
+                    log.info("Existing master repertory database is outdated (remedy count = {}). Updating to latest knowledge base...", rs.getInt(1));
+                }
+            } catch (Exception e) {
+                log.warn("Could not verify existing master repertory database: {}. Refreshing...", e.getMessage());
+                needsUpdate = true;
+            }
+        }
+
+        if (needsUpdate) {
+            log.info("Deploying bundled master repertory seed to: {}", masterDbPath);
             try (InputStream in = getClass().getResourceAsStream("/data/master_repertory.db")) {
                 if (in != null) {
                     Files.copy(in, masterFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                    log.info("Bundled master_repertory.db copied successfully ({} bytes)", masterFile.length());
+                    log.info("Bundled master_repertory.db updated successfully ({} bytes)", masterFile.length());
                 } else {
                     log.warn("Bundled /data/master_repertory.db not found in classpath resources!");
                 }
@@ -96,6 +112,24 @@ public class DatabaseManager {
                 );
             """);
 
+            // Enlisted Doctors / Practitioners
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS doctors (
+                    id TEXT PRIMARY KEY,
+                    full_name TEXT NOT NULL,
+                    registration_no TEXT,
+                    qualification TEXT,
+                    designation TEXT,
+                    clinic_name TEXT,
+                    address TEXT,
+                    phone TEXT,
+                    email TEXT,
+                    signature_notes TEXT,
+                    is_active BOOLEAN DEFAULT TRUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """);
+
             // Patients EMR
             stmt.execute("""
                 CREATE TABLE IF NOT EXISTS patients (
@@ -124,6 +158,7 @@ public class DatabaseManager {
                 CREATE TABLE IF NOT EXISTS consultations (
                     id TEXT PRIMARY KEY,
                     patient_id TEXT NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+                    doctor_id TEXT,
                     consult_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     chief_complaint TEXT NOT NULL,
                     location_notes TEXT,
@@ -137,6 +172,13 @@ public class DatabaseManager {
                 );
             """);
             stmt.execute("CREATE INDEX IF NOT EXISTS idx_cons_pat ON consultations(patient_id);");
+
+            // Migration for existing databases
+            try {
+                stmt.execute("ALTER TABLE consultations ADD COLUMN doctor_id TEXT;");
+            } catch (SQLException ignored) {
+                // Column already exists
+            }
 
             // Selected Rubrics associated with consultation
             stmt.execute("""
@@ -197,6 +239,19 @@ public class DatabaseManager {
                     color_hex TEXT DEFAULT '#FF0000'
                 );
             """);
+
+            // Seed default doctor if none exists
+            try (ResultSet rs = stmt.executeQuery("SELECT count(*) FROM doctors")) {
+                if (rs.next() && rs.getInt(1) == 0) {
+                    stmt.execute("""
+                        INSERT INTO doctors (id, full_name, registration_no, qualification, designation, clinic_name, address, phone, email, signature_notes, is_active)
+                        VALUES ('doc-default', 'Dr. S. K. Mukherjee', 'WBH-14285 / CCH-2018', 'B.H.M.S., M.D. (Homoeopathy)', 'Senior Consulting Homeopath',
+                                'Hahnemannian Classical Homeopathy Clinic', '12/A College Street, Kolkata, West Bengal - 700073', '+91 98300 12345', 'clinic@openhomeo.org',
+                                'Consulting Physician & Classical Prescriber', TRUE);
+                    """);
+                    log.info("Initialized default consulting doctor: Dr. S. K. Mukherjee");
+                }
+            }
 
             log.info("Clinic database schema initialized successfully.");
         }

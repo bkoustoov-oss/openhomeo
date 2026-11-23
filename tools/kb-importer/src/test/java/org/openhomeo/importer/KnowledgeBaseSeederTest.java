@@ -47,4 +47,16 @@ public class KnowledgeBaseSeederTest {
             }
         }
     }
+
+    @Test
+    public void seedMasterRepertoryDb() throws Exception {
+        Path targetPath = Path.of("../../openhomeo-core/src/main/resources/data/master_repertory.db").toAbsolutePath().normalize();
+        if (!targetPath.toFile().getParentFile().exists()) {
+            targetPath = Path.of("openhomeo-core/src/main/resources/data/master_repertory.db").toAbsolutePath().normalize();
+        }
+        System.out.println("Seeding master repertory DB to: " + targetPath);
+        KnowledgeBaseSeeder.seed(targetPath.toString());
+        assertTrue(targetPath.toFile().exists());
+        assertTrue(targetPath.toFile().length() > 50000);
+    }
 }

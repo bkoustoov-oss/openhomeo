@@ -21,6 +21,116 @@ public class ClinicDao {
     }
 
     // =========================================================================
+    // DOCTORS / PRACTITIONERS
+    // =========================================================================
+
+    public Doctor saveDoctor(Doctor d) throws SQLException {
+        String sql = """
+            INSERT INTO doctors (id, full_name, registration_no, qualification, designation, clinic_name, address, phone, email, signature_notes, is_active, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        """;
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, d.id());
+            ps.setString(2, d.fullName());
+            ps.setString(3, d.registrationNo());
+            ps.setString(4, d.qualification());
+            ps.setString(5, d.designation());
+            ps.setString(6, d.clinicName());
+            ps.setString(7, d.address());
+            ps.setString(8, d.phone());
+            ps.setString(9, d.email());
+            ps.setString(10, d.signatureNotes());
+            ps.setBoolean(11, d.isActive());
+            ps.setTimestamp(12, Timestamp.from(d.createdAt()));
+            ps.executeUpdate();
+        }
+        return d;
+    }
+
+    public void updateDoctor(Doctor d) throws SQLException {
+        String sql = """
+            UPDATE doctors
+            SET full_name = ?, registration_no = ?, qualification = ?, designation = ?, clinic_name = ?,
+                address = ?, phone = ?, email = ?, signature_notes = ?, is_active = ?
+            WHERE id = ?;
+        """;
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, d.fullName());
+            ps.setString(2, d.registrationNo());
+            ps.setString(3, d.qualification());
+            ps.setString(4, d.designation());
+            ps.setString(5, d.clinicName());
+            ps.setString(6, d.address());
+            ps.setString(7, d.phone());
+            ps.setString(8, d.email());
+            ps.setString(9, d.signatureNotes());
+            ps.setBoolean(10, d.isActive());
+            ps.setString(11, d.id());
+            ps.executeUpdate();
+        }
+    }
+
+    public Optional<Doctor> getDoctorById(String id) throws SQLException {
+        if (id == null) return Optional.empty();
+        String sql = "SELECT * FROM doctors WHERE id = ?";
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, id);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return Optional.of(mapDoctor(rs));
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    public List<Doctor> getAllDoctors() throws SQLException {
+        List<Doctor> list = new ArrayList<>();
+        String sql = "SELECT * FROM doctors ORDER BY is_active DESC, full_name ASC";
+        try (Connection conn = dbManager.getClinicConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            while (rs.next()) {
+                list.add(mapDoctor(rs));
+            }
+        }
+        return list;
+    }
+
+    public List<Doctor> getActiveDoctors() throws SQLException {
+        List<Doctor> list = new ArrayList<>();
+        String sql = "SELECT * FROM doctors WHERE is_active = TRUE ORDER BY full_name ASC";
+        try (Connection conn = dbManager.getClinicConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            while (rs.next()) {
+                list.add(mapDoctor(rs));
+            }
+        }
+        return list;
+    }
+
+    private Doctor mapDoctor(ResultSet rs) throws SQLException {
+        return new Doctor(
+                rs.getString("id"),
+                rs.getString("full_name"),
+                rs.getString("registration_no"),
+                rs.getString("qualification"),
+                rs.getString("designation"),
+                rs.getString("clinic_name"),
+                rs.getString("address"),
+                rs.getString("phone"),
+                rs.getString("email"),
+                rs.getString("signature_notes"),
+                rs.getBoolean("is_active"),
+                rs.getTimestamp("created_at").toInstant()
+        );
+    }
+
+    // =========================================================================
     // PATIENTS
     // =========================================================================
 
@@ -105,8 +215,8 @@ public class ClinicDao {
 
     public Consultation saveConsultation(Consultation c) throws SQLException {
         String sql = """
-            INSERT INTO consultations (id, patient_id, consult_date, chief_complaint, location_notes, sensation_notes, modality_notes, concomitant_notes, mind_disposition, physical_generals, herings_law_analysis, doctor_notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            INSERT INTO consultations (id, patient_id, doctor_id, consult_date, chief_complaint, location_notes, sensation_notes, modality_notes, concomitant_notes, mind_disposition, physical_generals, herings_law_analysis, doctor_notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         """;
 
         try (Connection conn = dbManager.getClinicConnection()) {
@@ -115,16 +225,17 @@ public class ClinicDao {
             try (PreparedStatement ps = conn.prepareStatement(sql)) {
                 ps.setString(1, c.id());
                 ps.setString(2, c.patientId());
-                ps.setTimestamp(3, Timestamp.from(c.consultDate()));
-                ps.setString(4, c.chiefComplaint());
-                ps.setString(5, c.locationNotes());
-                ps.setString(6, c.sensationNotes());
-                ps.setString(7, c.modalityNotes());
-                ps.setString(8, c.concomitantNotes());
-                ps.setString(9, c.mindDisposition());
-                ps.setString(10, c.physicalGenerals());
-                ps.setString(11, c.heringsLawAnalysis());
-                ps.setString(12, c.doctorNotes());
+                ps.setString(3, c.doctorId());
+                ps.setTimestamp(4, Timestamp.from(c.consultDate()));
+                ps.setString(5, c.chiefComplaint());
+                ps.setString(6, c.locationNotes());
+                ps.setString(7, c.sensationNotes());
+                ps.setString(8, c.modalityNotes());
+                ps.setString(9, c.concomitantNotes());
+                ps.setString(10, c.mindDisposition());
+                ps.setString(11, c.physicalGenerals());
+                ps.setString(12, c.heringsLawAnalysis());
+                ps.setString(13, c.doctorNotes());
                 ps.executeUpdate();
             }
 
@@ -357,9 +468,15 @@ public class ClinicDao {
             }
         }
 
+        String doctorId = null;
+        try {
+            doctorId = rs.getString("doctor_id");
+        } catch (SQLException ignored) {}
+
         return new Consultation(
                 id,
                 rs.getString("patient_id"),
+                doctorId,
                 rs.getTimestamp("consult_date").toInstant(),
                 rs.getString("chief_complaint"),
                 rs.getString("location_notes"),
