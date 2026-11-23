@@ -22,6 +22,8 @@ import org.openhomeo.core.server.MobileCompanionServer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.awt.Desktop;
+import java.net.URI;
 import java.net.InetAddress;
 import java.util.List;
 
@@ -204,6 +206,11 @@ public class MainWindow {
         companionBtn.setTooltip(new Tooltip("Launch Bedside Mobile & Tablet Companion Web Service on Local Wi-Fi"));
         companionBtn.setOnAction(e -> showCompanionServerDialog());
 
+        Button feedbackBtn = new Button("💬 Community & Issues");
+        feedbackBtn.getStyleClass().add(Styles.BUTTON_OUTLINED);
+        feedbackBtn.setTooltip(new Tooltip("OpenHomeo GitHub Issues, Bug Reports & Community Discussions"));
+        feedbackBtn.setOnAction(e -> showCommunityFeedbackDialog());
+
         Button lockBtn = new Button("Lock / Switch");
         lockBtn.getStyleClass().add(Styles.BUTTON_OUTLINED);
         lockBtn.setTooltip(new Tooltip("Lock session and switch user (Admin / Doctor / Pharmacist)"));
@@ -214,8 +221,72 @@ public class MainWindow {
             }
         });
 
-        header.getChildren().addAll(brand, new Separator(), searchField, searchBtn, new Separator(), clipboardBadgeBox, spacer, companionBtn, userLabel, themeToggle, lockBtn);
+        header.getChildren().addAll(brand, new Separator(), searchField, searchBtn, new Separator(), clipboardBadgeBox, spacer, companionBtn, feedbackBtn, userLabel, themeToggle, lockBtn);
         return header;
+    }
+
+    private void showCommunityFeedbackDialog() {
+        Dialog<Void> dialog = new Dialog<>();
+        dialog.setTitle("OpenHomeo Community & Issue Tracker");
+        dialog.setHeaderText("💬 Community Feedback, Bug Reports & Clinical Suggestions");
+
+        VBox box = new VBox(14);
+        box.setPadding(new Insets(16));
+        box.setPrefWidth(520);
+
+        Label desc = new Label(
+                "OpenHomeo is developed transparently on GitHub as 100% Free Open-Source Software. " +
+                "Practitioners, colleges, and researchers can submit clinical bug reports, request feature modifications, " +
+                "or debate classical remedies in GitHub Discussions."
+        );
+        desc.setWrapText(true);
+
+        Button btnBug = new Button("🐞 Report a Clinical / Software Bug");
+        btnBug.getStyleClass().addAll(Styles.BUTTON_OUTLINED, Styles.DANGER);
+        btnBug.setMaxWidth(Double.MAX_VALUE);
+        btnBug.setOnAction(e -> openUrl("https://github.com/bkoustoov-oss/openhomeo/issues/new?template=bug_report.md"));
+
+        Button btnFeature = new Button("💡 Suggest a Feature or Workflow Modification");
+        btnFeature.getStyleClass().addAll(Styles.BUTTON_OUTLINED, Styles.SUCCESS);
+        btnFeature.setMaxWidth(Double.MAX_VALUE);
+        btnFeature.setOnAction(e -> openUrl("https://github.com/bkoustoov-oss/openhomeo/issues/new?template=feature_request.md"));
+
+        Button btnProving = new Button("🧪 Submit Proving Data / Materia Medica Monograph");
+        btnProving.getStyleClass().addAll(Styles.BUTTON_OUTLINED);
+        btnProving.setMaxWidth(Double.MAX_VALUE);
+        btnProving.setOnAction(e -> openUrl("https://github.com/bkoustoov-oss/openhomeo/issues/new?template=proving_submission.md"));
+
+        Button btnDiscussions = new Button("💬 Join GitHub Community Discussions");
+        btnDiscussions.getStyleClass().addAll(Styles.BUTTON_OUTLINED, Styles.ACCENT);
+        btnDiscussions.setMaxWidth(Double.MAX_VALUE);
+        btnDiscussions.setOnAction(e -> openUrl("https://github.com/bkoustoov-oss/openhomeo/discussions"));
+
+        Button btnViewIssues = new Button("📋 View All Community Issues & Reports");
+        btnViewIssues.getStyleClass().add(Styles.BUTTON_OUTLINED);
+        btnViewIssues.setMaxWidth(Double.MAX_VALUE);
+        btnViewIssues.setOnAction(e -> openUrl("https://github.com/bkoustoov-oss/openhomeo/issues"));
+
+        box.getChildren().addAll(
+                desc, new Separator(),
+                btnBug, btnFeature, btnProving, btnDiscussions, btnViewIssues
+        );
+
+        dialog.getDialogPane().setContent(box);
+        dialog.getDialogPane().getButtonTypes().add(ButtonType.CLOSE);
+        dialog.showAndWait();
+    }
+
+    private void openUrl(String url) {
+        try {
+            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+                Desktop.getDesktop().browse(new URI(url));
+            } else {
+                // Fallback on Windows
+                Runtime.getRuntime().exec(new String[]{"rundll32", "url.dll,FileProtocolHandler", url});
+            }
+        } catch (Exception ex) {
+            log.error("Failed to open URL: " + url, ex);
+        }
     }
 
     private void showCompanionServerDialog() {

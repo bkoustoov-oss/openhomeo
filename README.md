@@ -19,7 +19,7 @@ OpenHomeo is a modern, high-performance, privacy-first desktop workstation desig
 ### Windows 10 / 11 (PowerShell)
 Open PowerShell (as standard user or admin) and execute:
 ```powershell
-irm https://raw.githubusercontent.com/koustoov/openhomeo/master/install.ps1 | iex
+irm https://raw.githubusercontent.com/bkoustoov-oss/openhomeo/master/install.ps1 | iex
 ```
 *Auto-detects architecture, verifies/installs OpenJDK 21 LTS, builds native acceleration library, and creates an OpenHomeo Workstation desktop shortcut.*
 
@@ -28,7 +28,7 @@ irm https://raw.githubusercontent.com/koustoov/openhomeo/master/install.ps1 | ie
 ### macOS (Apple Silicon M1/M2/M3/M4 & Intel Core) / Linux
 Open Terminal and execute:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/koustoov/openhomeo/master/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/bkoustoov-oss/openhomeo/master/install.sh | bash
 ```
 *Installs via Homebrew / apt, compiles native SIMD core, and sets up the `openhomeo` terminal command.*
 
@@ -93,7 +93,7 @@ OpenHomeo is engineered on the principle of **Zero-Knowledge Local Sovereignty**
 ### Build Commands
 ```bash
 # 1. Clone repository
-git clone https://github.com/koustoov/openhomeo.git
+git clone https://github.com/bkoustoov-oss/openhomeo.git
 cd openhomeo
 
 # 2. Build native Rust acceleration library

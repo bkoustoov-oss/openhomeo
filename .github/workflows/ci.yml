@@ -1,0 +1,38 @@
+name: OpenHomeo Workstation CI
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
+jobs:
+  build:
+    name: Build & Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Set up Rust & Cargo
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Native Rust Core
+        run: |
+          cd native-core
+          cargo build --release
+
+      - name: Build and Test OpenHomeo Workstation
+        run: mvn clean test

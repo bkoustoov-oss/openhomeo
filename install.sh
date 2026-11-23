@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # OpenHomeo Workstation - macOS & Linux One-Line Automated Installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/<YOUR_USER>/openhomeo/master/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/bkoustoov-oss/openhomeo/master/install.sh | bash
 # ==============================================================================
 
 set -e
@@ -68,7 +68,7 @@ if [ -d "$INSTALL_DIR/.git" ]; then
     git -C "$INSTALL_DIR" pull
 else
     echo -e "${CYAN}[*] Cloning OpenHomeo from GitHub...${NC}"
-    git clone https://github.com/koustoov/openhomeo.git "$INSTALL_DIR"
+    git clone https://github.com/bkoustoov-oss/openhomeo.git "$INSTALL_DIR"
 fi
 
 # 4. Build Native Core and Java Workstation

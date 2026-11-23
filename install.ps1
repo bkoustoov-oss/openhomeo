@@ -1,6 +1,6 @@
 ﻿# ==============================================================================
 # OpenHomeo Workstation - Windows One-Line Universal Automated Installer
-# Usage: irm https://raw.githubusercontent.com/<YOUR_USER>/openhomeo/master/install.ps1 | iex
+# Usage: irm https://raw.githubusercontent.com/bkoustoov-oss/openhomeo/master/install.ps1 | iex
 # ==============================================================================
 
 $ErrorActionPreference = "Stop"
@@ -65,7 +65,7 @@ if (-not (Test-Path $installDir)) {
 Write-Host "[*] Target installation folder: $installDir" -ForegroundColor Gray
 
 # 4. Git / Repository Fetching
-$repoUrl = "https://github.com/koustoov/openhomeo.git"
+$repoUrl = "https://github.com/bkoustoov-oss/openhomeo.git"
 if (Get-Command git -ErrorAction SilentlyContinue) {
     if (Test-Path "$installDir\.git") {
         Write-Host "[*] Existing OpenHomeo repository detected. Pulling latest updates..." -ForegroundColor Cyan
@@ -77,7 +77,7 @@ if (Get-Command git -ErrorAction SilentlyContinue) {
 } else {
     Write-Host "[*] Git not found. Downloading repository archive ZIP directly..." -ForegroundColor Cyan
     $zipPath = "$env:TEMP\openhomeo_master.zip"
-    $zipUrl = "https://github.com/koustoov/openhomeo/archive/refs/heads/master.zip"
+    $zipUrl = "https://github.com/bkoustoov-oss/openhomeo/archive/refs/heads/master.zip"
     Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing
     Expand-Archive -Path $zipPath -DestinationPath "$env:TEMP\openhomeo_unzip" -Force
     Copy-Item -Path "$env:TEMP\openhomeo_unzip\openhomeo-master\*" -Destination $installDir -Recurse -Force
