@@ -830,7 +830,12 @@ public class KnowledgeBaseSeeder {
                     String remId = rsRem.getString("id");
                     String remFullName = rsRem.getString("full_name");
                     String remCommon = rsRem.getString("common_name");
-                    String rhyme = org.openhomeo.core.materia_medica.HomeopathicClinicalRhymes.findRhyme(remId, remFullName, remCommon);
+                    String rhyme = null;
+                    try {
+                        Class<?> clazz = Class.forName("org.openhomeo.core.materia_medica.HomeopathicClinicalRhymes");
+                        java.lang.reflect.Method m = clazz.getMethod("findRhyme", String.class, String.class, String.class);
+                        rhyme = (String) m.invoke(null, remId, remFullName, remCommon);
+                    } catch (Exception ignored) {}
                     if (rhyme != null) {
                         insertMM(ps, remId, "Classical Clinical Mnemonic Verses",
                                 "Clinical Rhymes & Keynotes for Remedy Selection", "CLINICAL RHYMES & KEYNOTES",

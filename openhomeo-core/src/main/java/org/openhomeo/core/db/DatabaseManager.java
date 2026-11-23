@@ -454,6 +454,34 @@ public class DatabaseManager {
                 );
             """);
 
+            // Community Proving Ingestion Archive
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS custom_provings (
+                    id TEXT PRIMARY KEY,
+                    remedy_id TEXT NOT NULL,
+                    remedy_name TEXT NOT NULL,
+                    prover_director TEXT,
+                    proving_year INTEGER,
+                    section TEXT NOT NULL,
+                    symptoms_text TEXT NOT NULL,
+                    source_format TEXT NOT NULL,
+                    imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """);
+            stmt.execute("CREATE INDEX IF NOT EXISTS idx_prov_rem ON custom_provings(remedy_id);");
+
+            // Over-The-Air (OTA) Non-Destructive Update Log
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS ota_update_history (
+                    id TEXT PRIMARY KEY,
+                    version TEXT NOT NULL,
+                    release_date TEXT,
+                    repertory_hash TEXT,
+                    status TEXT NOT NULL,
+                    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """);
+
             // Seed default doctor if none exists
             try (ResultSet rs = stmt.executeQuery("SELECT count(*) FROM doctors")) {
                 if (rs.next() && rs.getInt(1) == 0) {

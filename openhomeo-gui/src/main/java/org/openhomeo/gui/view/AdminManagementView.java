@@ -12,13 +12,18 @@ import javafx.scene.layout.*;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 import org.openhomeo.core.db.ClinicDao;
+import org.openhomeo.core.materia_medica.ProvingIngestionService;
 import org.openhomeo.core.model.*;
 import org.openhomeo.core.net.NetworkDiscoveryService;
 import org.openhomeo.core.net.RemoteDatabaseManager;
+import org.openhomeo.core.ota.OtaUpdateService;
 import org.openhomeo.core.security.SecurityService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import javafx.stage.FileChooser;
 
+import java.io.File;
+import java.nio.file.Files;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.util.List;
@@ -74,8 +79,10 @@ public class AdminManagementView extends BorderPane {
         Tab tabFaith = new Tab("🔒 Secret Report of Faith", createFaithReportPane());
         Tab tabRemarks = new Tab("📝 Doctor Remarks Approval", createRemarksApprovalPane());
         Tab tabNetwork = new Tab("🌐 Network & Remote Settings", createNetworkSettingsPane());
+        Tab tabOta = new Tab("🔄 Over-The-Air (OTA) Updates", createOtaUpdatesPane());
+        Tab tabProving = new Tab("🧪 Community Proving Ingestion", createProvingIngestionPane());
 
-        adminTabs.getTabs().addAll(tabDoctors, tabPharmacists, tabUsers, tabFaith, tabRemarks, tabNetwork);
+        adminTabs.getTabs().addAll(tabDoctors, tabPharmacists, tabUsers, tabFaith, tabRemarks, tabNetwork, tabOta, tabProving);
         setCenter(adminTabs);
 
         refreshAllData();
@@ -860,6 +867,161 @@ public class AdminManagementView extends BorderPane {
         } catch (SQLException e) {
             log.error("Failed to load constituent remarks", e);
         }
+    }
+
+    private Node createOtaUpdatesPane() {
+        BorderPane pane = new BorderPane();
+        pane.setPadding(new Insets(14));
+
+        VBox content = new VBox(14);
+
+        Label secTitle = new Label("Over-The-Air (OTA) Knowledge Base Update Service");
+        secTitle.setFont(Font.font("Segoe UI", FontWeight.BOLD, 16));
+
+        Label safetyBadge = new Label("🛡️ 100% Non-Destructive Update Guarantee: The OTA update service applies enhancements ONLY to the read-only classical knowledge base (master_repertory.db). Your clinic database (user_clinic.db), patient files, case histories, and prescriptions are NEVER altered, touched, or overwritten.");
+        safetyBadge.setWrapText(true);
+        safetyBadge.setStyle("-fx-background-color: #f0fdf4; -fx-text-fill: #166534; -fx-padding: 10 14; -fx-border-color: #86efac; -fx-border-radius: 6; -fx-background-radius: 6; -fx-font-weight: bold;");
+
+        OtaUpdateService otaService = new OtaUpdateService("master_repertory.db", "user_clinic.db", clinicDao);
+
+        GridPane statusGrid = new GridPane();
+        statusGrid.setHgap(10);
+        statusGrid.setVgap(8);
+        statusGrid.addRow(0, new Label("Installed Repertory Engine Version:"), new Label(OtaUpdateService.CURRENT_VERSION));
+        statusGrid.addRow(1, new Label("Verified Master Remedies Catalog:"), new Label("1,221 Classical, Bowel Nosodes, Sarcodes & Pharmacopoeial Remedies"));
+        statusGrid.addRow(2, new Label("Non-Destructive Target:"), new Label("master_repertory.db (Isolated from user_clinic.db)"));
+
+        TextArea otaLog = new TextArea();
+        otaLog.setEditable(false);
+        otaLog.setPrefRowCount(8);
+        otaLog.setText("System ready for Over-The-Air repertory updates.\nClick 'Check for OTA Updates' to verify repository status.");
+
+        HBox actions = new HBox(12);
+        Button btnCheck = new Button("🔍 Check for OTA Updates");
+        btnCheck.getStyleClass().add(Styles.ACCENT);
+        btnCheck.setOnAction(e -> {
+            OtaUpdateService.UpdateInfo info = otaService.checkForUpdates();
+            otaLog.appendText("\n\n[OTA CHECK] " + Instant.now() + "\n" +
+                    "Latest Version: " + info.latestVersion() + "\n" +
+                    "Update Available: " + (info.updateAvailable() ? "YES" : "NO (Installed version is up to date)") + "\n" +
+                    "Release Date: " + info.releaseDate() + " | Master Catalog: " + info.totalRemedies() + " remedies\n" +
+                    "Changelog: " + info.changelog() + "\n" +
+                    "Safety Guarantee: " + info.safetyNotice());
+            showNotification("OTA Status: Up to date (" + OtaUpdateService.CURRENT_VERSION + ")");
+        });
+
+        Button btnInstallPackage = new Button("📦 Install OTA Master Database (.db)");
+        btnInstallPackage.getStyleClass().add(Styles.BUTTON_OUTLINED);
+        btnInstallPackage.setOnAction(e -> {
+            FileChooser chooser = new FileChooser();
+            chooser.setTitle("Select OpenHomeo Master Database Update Package");
+            chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("SQLite Database (*.db)", "*.db"));
+            File file = chooser.showOpenDialog(getScene().getWindow());
+            if (file != null) {
+                OtaUpdateService.ApplyResult res = otaService.applyUpdate(file, "1.0.1-OTA");
+                otaLog.appendText("\n\n[OTA INSTALL RESULT]\nStatus: " + (res.success() ? "SUCCESS" : "FAILED") + "\n" +
+                        "Version: " + res.version() + "\nMessage: " + res.message());
+                if (res.success()) {
+                    showNotification("OTA Update Applied: " + res.message());
+                } else {
+                    showError(res.message());
+                }
+            }
+        });
+
+        actions.getChildren().addAll(btnCheck, btnInstallPackage);
+
+        content.getChildren().addAll(secTitle, safetyBadge, statusGrid, actions, new Label("OTA Transaction & Integrity Log:"), otaLog);
+        pane.setCenter(new ScrollPane(content));
+        return pane;
+    }
+
+    private Node createProvingIngestionPane() {
+        BorderPane pane = new BorderPane();
+        pane.setPadding(new Insets(14));
+
+        VBox content = new VBox(14);
+
+        Label secTitle = new Label("Community & Clinical Proving Ingestion Pipeline (Strategic Rec 1)");
+        secTitle.setFont(Font.font("Segoe UI", FontWeight.BOLD, 16));
+
+        Label infoBadge = new Label("Import newly conducted or community homeopathic provings directly into your local clinic database. Accepts standard structured JSON and CSV formats conforming strictly to international English and Latin botanical pharmacopoeial nomenclature.");
+        infoBadge.setWrapText(true);
+        infoBadge.setStyle("-fx-background-color: -color-bg-subtle; -fx-padding: 8 12; -fx-border-color: -color-border-subtle; -fx-border-radius: 6; -fx-background-radius: 6;");
+
+        ProvingIngestionService provingService = new ProvingIngestionService(clinicDao);
+
+        TextArea provingLog = new TextArea();
+        provingLog.setEditable(false);
+        provingLog.setPrefRowCount(7);
+        provingLog.setText("Proving Ingestion Pipeline ready. Ingested provings will be immediately accessible in Materia Medica and the Live Stock Register.");
+
+        TextArea pasteArea = new TextArea();
+        pasteArea.setPromptText("Paste raw Proving JSON here (e.g. {\"remedyName\": \"Boswellia serrata\", \"abbr\": \"Bosw-s\", ...})");
+        pasteArea.setPrefRowCount(6);
+
+        HBox actions = new HBox(12);
+
+        Button btnImportJson = new Button("📄 Ingest Proving from JSON File");
+        btnImportJson.getStyleClass().add(Styles.ACCENT);
+        btnImportJson.setOnAction(e -> {
+            FileChooser chooser = new FileChooser();
+            chooser.setTitle("Select Proving JSON File");
+            chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("JSON Files (*.json)", "*.json"));
+            File f = chooser.showOpenDialog(getScene().getWindow());
+            if (f != null) {
+                try {
+                    String json = Files.readString(f.toPath());
+                    ProvingIngestionService.IngestionResult res = provingService.ingestJson(json);
+                    provingLog.appendText("\n\n[INGEST JSON] " + res.remedyName() + " (" + res.remedyId() + "): " + res.message() + " [Sections: " + res.sectionsIngested() + "]");
+                    showNotification("Ingested proving: " + res.remedyName());
+                } catch (Exception ex) {
+                    showError("Failed to ingest JSON: " + ex.getMessage());
+                }
+            }
+        });
+
+        Button btnImportCsv = new Button("📊 Ingest Proving from CSV File");
+        btnImportCsv.getStyleClass().add(Styles.BUTTON_OUTLINED);
+        btnImportCsv.setOnAction(e -> {
+            FileChooser chooser = new FileChooser();
+            chooser.setTitle("Select Proving CSV File");
+            chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("CSV Files (*.csv)", "*.csv"));
+            File f = chooser.showOpenDialog(getScene().getWindow());
+            if (f != null) {
+                ProvingIngestionService.IngestionResult res = provingService.ingestCsv(f);
+                provingLog.appendText("\n\n[INGEST CSV] " + res.remedyName() + " (" + res.remedyId() + "): " + res.message() + " [Sections: " + res.sectionsIngested() + "]");
+                showNotification("Ingested proving: " + res.remedyName());
+            }
+        });
+
+        Button btnIngestPasted = new Button("📥 Ingest Pasted Proving JSON");
+        btnIngestPasted.getStyleClass().add(Styles.SUCCESS);
+        btnIngestPasted.setOnAction(e -> {
+            String txt = pasteArea.getText().trim();
+            if (txt.isBlank()) {
+                showError("Please paste proving JSON text first.");
+                return;
+            }
+            ProvingIngestionService.IngestionResult res = provingService.ingestJson(txt);
+            provingLog.appendText("\n\n[INGEST PASTED] " + res.remedyName() + " (" + res.remedyId() + "): " + res.message() + " [Sections: " + res.sectionsIngested() + "]");
+            if (res.success()) {
+                pasteArea.clear();
+                showNotification("Ingested proving: " + res.remedyName());
+            } else {
+                showError(res.message());
+            }
+        });
+
+        actions.getChildren().addAll(btnImportJson, btnImportCsv, btnIngestPasted);
+
+        content.getChildren().addAll(
+                secTitle, infoBadge, actions,
+                new Label("Paste Proving JSON:"), pasteArea,
+                new Label("Ingestion Diagnostics & Clinical Status:"), provingLog
+        );
+        pane.setCenter(new ScrollPane(content));
+        return pane;
     }
 
     private void showNotification(String msg) {

@@ -1,9 +1,12 @@
 package org.openhomeo.gui.view;
 
 import atlantafx.base.theme.Styles;
+import javafx.embed.swing.SwingFXUtils;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.*;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
 import javafx.scene.layout.*;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
@@ -12,6 +15,7 @@ import org.openhomeo.core.ai.EntryPointSuggestionEngine;
 import org.openhomeo.core.ai.PrescriptionLogicAnalyzer;
 import org.openhomeo.core.db.ClinicDao;
 import org.openhomeo.core.db.MasterKnowledgeDao;
+import org.openhomeo.core.image.ImageVaultService;
 import org.openhomeo.core.model.*;
 import org.openhomeo.core.net.NetworkDiscoveryService;
 import org.openhomeo.core.pdf.PrescriptionPdfService;
@@ -20,10 +24,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.awt.Desktop;
+import java.awt.image.BufferedImage;
 import java.io.File;
+import java.nio.file.Files;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.Period;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -31,11 +38,12 @@ import java.util.UUID;
 
 /**
  * Classical Case-Taking Workstation:
- * - Hahnemannian L-S-M-C Framework
+ * - Hahnemannian L-S-M-C Framework with Auto-loading Consultation History
+ * - Longitudinal Patient Photographic Timeline (Primary Baseline & Serial Follow-ups)
  * - Intelligent Entry-Point Medicine Suggestion Engine with Doctor Supersede / Nullification Case Study Database
  * - Earlier Medications, Suppressions & Drug Miasm Tracking
  * - Enlisted Practitioner Management
- * - Posology Prescription Generator & Dispatch to Dispensary
+ * - Posology Prescription Generator & Dispatch to Dispensary & Billing POS
  * - Structured PDF Printing with Auto-Fit Single Page option
  */
 public class CaseTakingView extends BorderPane {
@@ -44,12 +52,14 @@ public class CaseTakingView extends BorderPane {
     private final ClinicDao clinicDao;
     private final MasterKnowledgeDao masterDao;
     private final SymptomClipboard clipboard;
+    private final ImageVaultService imageVault;
     private final PrescriptionPdfService pdfService = new PrescriptionPdfService();
     private final EntryPointSuggestionEngine suggestionEngine = new EntryPointSuggestionEngine();
 
     // Patient & Doctor selection
     private final ComboBox<PatientItem> patientCombo;
     private final ComboBox<DoctorItem> doctorCombo;
+    private final Label demographicsBanner;
 
     // Case Fields
     private final TextArea chiefComplaintArea;
@@ -78,12 +88,19 @@ public class CaseTakingView extends BorderPane {
     private final ComboBox<Prescription.PotencyScale> scaleCombo;
     private final TextField posologyField;
     private final TextField repetitionField;
+    private final TextField doctorFeeField;
+    private final TextField medicineFeeField;
 
     // Printing Controls
     private final CheckBox autoFitCheck;
 
+    // Consultation History & Photographic Timeline
     private final ListView<ConsultationItem> historyList;
     private final Label statusLabel;
+    private final ImageView baselineThumbView;
+    private final Label baselineDateLabel;
+    private final Label baselineNotesLabel;
+    private final ListView<PhotoTimelineItem> photoTimelineList;
 
     public record PatientItem(Patient patient) {
         @Override
@@ -116,12 +133,31 @@ public class CaseTakingView extends BorderPane {
         }
     }
 
+    public record PhotoTimelineItem(ClinicalImage image) {
+        @Override
+        public String toString() {
+            String ts = image.capturedAt().toString();
+            String dt = ts.length() >= 16 ? ts.substring(0, 16).replace("T", " ") : ts;
+            String note = image.notes() != null && !image.notes().isBlank() ? image.notes() : "Clinical photo";
+            return String.format("📅 %s | %s\n📝 %s", dt, image.bodyPart(), note);
+        }
+    }
+
     public CaseTakingView(ClinicDao clinicDao, MasterKnowledgeDao masterDao, SymptomClipboard clipboard) {
+        this(clinicDao, masterDao, clipboard, new ImageVaultService("openhomeo_vault"));
+    }
+
+    public CaseTakingView(ClinicDao clinicDao, MasterKnowledgeDao masterDao, SymptomClipboard clipboard, ImageVaultService imageVault) {
         this.clinicDao = clinicDao;
         this.masterDao = masterDao;
         this.clipboard = clipboard;
+        this.imageVault = imageVault != null ? imageVault : new ImageVaultService("openhomeo_vault");
 
         setPadding(new Insets(10));
+
+        // Initialize Demographics Banner
+        demographicsBanner = new Label("Select or register a patient to begin consultation.");
+        demographicsBanner.setStyle("-fx-background-color: -color-accent-subtle; -fx-padding: 8 12; -fx-background-radius: 6; -fx-font-weight: bold;");
 
         // 1. Top Bar: Patient & Doctor Selection
         HBox topBar = new HBox(12);
@@ -132,8 +168,13 @@ public class CaseTakingView extends BorderPane {
         patientCombo.setPromptText("Select Patient...");
         patientCombo.setPrefWidth(300);
         patientCombo.setOnAction(e -> {
+            PatientItem sel = patientCombo.getValue();
+            updatePatientDemographicsBanner(sel != null ? sel.patient : null);
             loadPatientHistory();
             loadPatientPastMedications();
+            if (sel != null) {
+                loadPhotographicTimeline(sel.patient.id());
+            }
             computeEntryPointSuggestions();
         });
 
@@ -167,7 +208,7 @@ public class CaseTakingView extends BorderPane {
         );
         setTop(topBar);
 
-        // 2. Central Split: Form (Left) & History (Right)
+        // 2. Central Split: Form (Left) & History/Photos (Right)
         SplitPane splitPane = new SplitPane();
 
         // Left Panel: Case-Taking Form
@@ -303,6 +344,12 @@ public class CaseTakingView extends BorderPane {
 
         repetitionField = new TextField("Single dose at bedtime, then placebo / SAC-LAC");
 
+        doctorFeeField = new TextField("500.00");
+        doctorFeeField.setPrefWidth(100);
+
+        medicineFeeField = new TextField("150.00");
+        medicineFeeField.setPrefWidth(100);
+
         prescGrid.add(new Label("Remedy:"), 0, 0);
         prescGrid.add(remedyBox, 1, 0);
         prescGrid.add(new Label("Potency:"), 2, 0);
@@ -315,6 +362,11 @@ public class CaseTakingView extends BorderPane {
 
         prescGrid.add(new Label("Repetition:"), 0, 2);
         prescGrid.add(repetitionField, 1, 2, 3, 1);
+
+        prescGrid.add(new Label("Doctor Fee (₹):"), 0, 3);
+        prescGrid.add(doctorFeeField, 1, 3);
+        prescGrid.add(new Label("Medicine Fee (₹):"), 2, 3);
+        prescGrid.add(medicineFeeField, 3, 3);
 
         prescPane.setContent(prescGrid);
 
@@ -341,6 +393,7 @@ public class CaseTakingView extends BorderPane {
         actionBox.getChildren().addAll(saveConsultBtn, saveAndPrintBtn, logicAnalysisBtn, autoFitCheck);
 
         formBox.getChildren().addAll(
+                demographicsBanner,
                 new Label("Chief Complaint:"), chiefComplaintArea,
                 new Label("Hahnemannian L-S-M-C Framework:"),
                 locationField, sensationField, modalityField, concomitantField,
@@ -356,16 +409,30 @@ public class CaseTakingView extends BorderPane {
         ScrollPane formScroll = new ScrollPane(formBox);
         formScroll.setFitToWidth(true);
 
-        // Right Panel: Consultation History
+        // Right Panel: TabPane with Consultations History & Photographic Timeline
+        TabPane rightTabs = new TabPane();
+        rightTabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
+        rightTabs.setMinWidth(360);
+
+        // Tab 1: Consultation History
         VBox historyBox = new VBox(10);
-        historyBox.setPadding(new Insets(15));
-        historyBox.setMinWidth(320);
+        historyBox.setPadding(new Insets(12));
 
         Label histHeader = new Label("Patient Case History");
         histHeader.getStyleClass().add(Styles.TITLE_4);
 
+        Button newConsultBtn = new Button("➕ New Follow-Up Consultation (Clear Form)");
+        newConsultBtn.getStyleClass().addAll(Styles.BUTTON_OUTLINED, Styles.SUCCESS);
+        newConsultBtn.setMaxWidth(Double.MAX_VALUE);
+        newConsultBtn.setOnAction(e -> clearFormForNewConsultation());
+
         historyList = new ListView<>();
         VBox.setVgrow(historyList, Priority.ALWAYS);
+        historyList.getSelectionModel().selectedItemProperty().addListener((obs, oldVal, newVal) -> {
+            if (newVal != null) {
+                loadConsultationIntoForm(newVal.consultation);
+            }
+        });
 
         HBox histBtnBox = new HBox(8);
         Button printHistBtn = new Button("Print Selected Consultation PDF");
@@ -373,10 +440,72 @@ public class CaseTakingView extends BorderPane {
         printHistBtn.setOnAction(e -> printSelectedHistory());
         histBtnBox.getChildren().add(printHistBtn);
 
-        historyBox.getChildren().addAll(histHeader, historyList, histBtnBox);
+        historyBox.getChildren().addAll(histHeader, newConsultBtn, historyList, histBtnBox);
+        Tab tabConsultHistory = new Tab("📋 Consultations", historyBox);
 
-        splitPane.getItems().addAll(formScroll, historyBox);
-        splitPane.setDividerPositions(0.66);
+        // Tab 2: Photographic Timeline
+        VBox photoBox = new VBox(10);
+        photoBox.setPadding(new Insets(12));
+
+        Label photoHeader = new Label("Longitudinal Clinical Photographs");
+        photoHeader.getStyleClass().add(Styles.TITLE_4);
+
+        // Section A: Primary Baseline Photograph
+        VBox baselineCard = new VBox(8);
+        baselineCard.setPadding(new Insets(10));
+        baselineCard.setStyle("-fx-background-color: -color-bg-subtle; -fx-border-color: -color-border-subtle; -fx-border-radius: 8; -fx-background-radius: 8;");
+
+        Label baselineTitle = new Label("⭐ Primary Baseline Photograph");
+        baselineTitle.setFont(Font.font("Segoe UI", FontWeight.BOLD, 12));
+
+        baselineThumbView = new ImageView();
+        baselineThumbView.setFitWidth(130);
+        baselineThumbView.setFitHeight(130);
+        baselineThumbView.setPreserveRatio(true);
+        baselineThumbView.setStyle("-fx-border-color: #94a3b8; -fx-border-width: 1px;");
+
+        baselineDateLabel = new Label("Captured: No baseline photo");
+        baselineDateLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: -color-fg-muted;");
+
+        baselineNotesLabel = new Label("Clinical note: Not recorded");
+        baselineNotesLabel.setWrapText(true);
+        baselineNotesLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: -color-fg-muted;");
+
+        Button setBaselineBtn = new Button("📷 Set Primary Photograph");
+        setBaselineBtn.getStyleClass().addAll(Styles.BUTTON_OUTLINED, Styles.SMALL);
+        setBaselineBtn.setOnAction(e -> handleSetPrimaryBaselinePhoto());
+
+        HBox baselineRow = new HBox(10);
+        VBox baselineMeta = new VBox(6, baselineTitle, baselineDateLabel, baselineNotesLabel, setBaselineBtn);
+        HBox.setHgrow(baselineMeta, Priority.ALWAYS);
+        baselineRow.getChildren().addAll(baselineThumbView, baselineMeta);
+        baselineCard.getChildren().add(baselineRow);
+
+        // Section B: Serial Follow-Up Photographs Timeline
+        Label timelineTitle = new Label("📅 Serial Follow-Up Clinical Photographs");
+        timelineTitle.setFont(Font.font("Segoe UI", FontWeight.BOLD, 12));
+
+        photoTimelineList = new ListView<>();
+        VBox.setVgrow(photoTimelineList, Priority.ALWAYS);
+
+        HBox photoBtnBox = new HBox(8);
+        Button addPhotoBtn = new Button("➕ Add Follow-Up Photo");
+        addPhotoBtn.getStyleClass().addAll(Styles.BUTTON_OUTLINED, Styles.SMALL);
+        addPhotoBtn.setOnAction(e -> handleAddFollowUpPhoto());
+
+        Button viewPhotoBtn = new Button("🔍 View Full Resolution");
+        viewPhotoBtn.getStyleClass().addAll(Styles.BUTTON_OUTLINED, Styles.SMALL);
+        viewPhotoBtn.setOnAction(e -> handleViewSelectedPhoto());
+
+        photoBtnBox.getChildren().addAll(addPhotoBtn, viewPhotoBtn);
+
+        photoBox.getChildren().addAll(photoHeader, baselineCard, new Separator(), timelineTitle, photoTimelineList, photoBtnBox);
+        Tab tabPhotoTimeline = new Tab("📸 Photo Timeline", photoBox);
+
+        rightTabs.getTabs().addAll(tabConsultHistory, tabPhotoTimeline);
+
+        splitPane.getItems().addAll(formScroll, rightTabs);
+        splitPane.setDividerPositions(0.64);
         setCenter(splitPane);
 
         loadInitialData();
@@ -391,6 +520,11 @@ public class CaseTakingView extends BorderPane {
             }
             if (!patientCombo.getItems().isEmpty()) {
                 patientCombo.getSelectionModel().select(0);
+                PatientItem sel = patientCombo.getValue();
+                updatePatientDemographicsBanner(sel != null ? sel.patient : null);
+                if (sel != null) {
+                    loadPhotographicTimeline(sel.patient.id());
+                }
             }
 
             // Load Doctors
@@ -443,8 +577,279 @@ public class CaseTakingView extends BorderPane {
             for (Consultation c : consults) {
                 historyList.getItems().add(new ConsultationItem(c));
             }
+            if (!consults.isEmpty()) {
+                historyList.getSelectionModel().select(0);
+                loadConsultationIntoForm(consults.get(0));
+            } else {
+                clearFormForNewConsultation();
+            }
         } catch (Exception e) {
             log.error("Failed to load patient history", e);
+        }
+    }
+
+    private void loadConsultationIntoForm(Consultation c) {
+        if (c == null) return;
+        chiefComplaintArea.setText(c.chiefComplaint() != null ? c.chiefComplaint() : "");
+        locationField.setText(c.locationNotes() != null ? c.locationNotes() : "");
+        sensationField.setText(c.sensationNotes() != null ? c.sensationNotes() : "");
+        modalityField.setText(c.modalityNotes() != null ? c.modalityNotes() : "");
+        concomitantField.setText(c.concomitantNotes() != null ? c.concomitantNotes() : "");
+        mindArea.setText(c.mindDisposition() != null ? c.mindDisposition() : "");
+        physicalsArea.setText(c.physicalGenerals() != null ? c.physicalGenerals() : "");
+        heringsLawArea.setText(c.heringsLawAnalysis() != null ? c.heringsLawAnalysis() : "");
+
+        if (c.doctorId() != null) {
+            for (DoctorItem doc : doctorCombo.getItems()) {
+                if (doc.doctor.id().equals(c.doctorId())) {
+                    doctorCombo.getSelectionModel().select(doc);
+                    break;
+                }
+            }
+        }
+
+        if (c.prescriptions() != null && !c.prescriptions().isEmpty()) {
+            Prescription pr = c.prescriptions().get(0);
+            for (RemedyItem rem : remedyCombo.getItems()) {
+                if (rem.remedy.id().equalsIgnoreCase(pr.remedyId()) || rem.remedy.fullName().equalsIgnoreCase(pr.remedyName())) {
+                    remedyCombo.getSelectionModel().select(rem);
+                    break;
+                }
+            }
+            potencyField.setText(pr.potency() != null ? pr.potency() : "200");
+            if (pr.scale() != null) {
+                scaleCombo.setValue(pr.scale());
+            }
+            posologyField.setText(pr.posologyInstructions() != null ? pr.posologyInstructions() : "4 globules / 1 dose");
+            repetitionField.setText(pr.repetitionFrequency() != null ? pr.repetitionFrequency() : "Single dose");
+        }
+
+        statusLabel.setText("Loaded consultation from: " + c.consultDate().toString().substring(0, 10));
+    }
+
+    private void clearFormForNewConsultation() {
+        historyList.getSelectionModel().clearSelection();
+        chiefComplaintArea.clear();
+        locationField.clear();
+        sensationField.clear();
+        modalityField.clear();
+        concomitantField.clear();
+        mindArea.clear();
+        physicalsArea.clear();
+        heringsLawArea.clear();
+        potencyField.setText("200");
+        scaleCombo.setValue(Prescription.PotencyScale.CENTESIMAL);
+        posologyField.setText("4 globules / 1 dose");
+        repetitionField.setText("Single dose at bedtime, then placebo / SAC-LAC");
+        doctorFeeField.setText("500.00");
+        medicineFeeField.setText("150.00");
+        computeEntryPointSuggestions();
+        statusLabel.setText("Form cleared for new follow-up consultation.");
+    }
+
+    private void updatePatientDemographicsBanner(Patient p) {
+        if (p == null) {
+            demographicsBanner.setText("Select or register a patient to begin consultation.");
+            return;
+        }
+        int age = 0;
+        if (p.dob() != null) {
+            age = Period.between(p.dob(), LocalDate.now()).getYears();
+        }
+        demographicsBanner.setText(String.format("👤 Patient: %s %s (Case: %s) | Age: %d yrs (%s) | Gender: %s | Constitution: %s | Miasm: %s | Phone: %s",
+                p.firstName(), p.lastName(), p.caseNumber(), age,
+                p.dob() != null ? p.dob().toString() : "N/A",
+                p.gender() != null ? p.gender() : "N/A",
+                p.constitutionalType() != null ? p.constitutionalType() : "Carbonic",
+                p.miasmaticBackground() != null ? p.miasmaticBackground() : "PSORA",
+                p.phone() != null && !p.phone().isBlank() ? p.phone() : "N/A"
+        ));
+    }
+
+    private void loadPhotographicTimeline(String patientId) {
+        photoTimelineList.getItems().clear();
+        baselineThumbView.setImage(null);
+        baselineDateLabel.setText("Captured: No baseline photo");
+        baselineNotesLabel.setText("Clinical note: Not recorded");
+
+        if (patientId == null || patientId.isBlank()) return;
+
+        try {
+            List<ClinicalImage> images = clinicDao.getImagesForPatient(patientId);
+            ClinicalImage baseline = null;
+            for (ClinicalImage img : images) {
+                if (baseline == null && (img.bodyPart().equalsIgnoreCase("Primary Baseline") || img.bodyPart().toLowerCase().contains("baseline") || img.deltaEBaseline() == null || img.deltaEBaseline() == 0.0)) {
+                    baseline = img;
+                } else {
+                    photoTimelineList.getItems().add(new PhotoTimelineItem(img));
+                }
+            }
+            if (baseline == null && !images.isEmpty()) {
+                baseline = images.get(0);
+            }
+
+            if (baseline != null) {
+                try {
+                    BufferedImage bimg = imageVault.retrieveBufferedImage(baseline.contentHash());
+                    if (bimg != null) {
+                        baselineThumbView.setImage(SwingFXUtils.toFXImage(bimg, null));
+                    }
+                    String ts = baseline.capturedAt().toString();
+                    String dt = ts.length() >= 16 ? ts.substring(0, 16).replace("T", " ") : ts;
+                    baselineDateLabel.setText("Captured: " + dt);
+                    baselineNotesLabel.setText("Note: " + (baseline.notes() != null ? baseline.notes() : baseline.bodyPart()));
+                } catch (Exception ex) {
+                    log.error("Failed to load baseline thumbnail", ex);
+                }
+            }
+        } catch (Exception e) {
+            log.error("Failed to load clinical photographs for patient", e);
+        }
+    }
+
+    private void handleSetPrimaryBaselinePhoto() {
+        PatientItem sel = patientCombo.getValue();
+        if (sel == null) {
+            showAlert("No Patient Selected", "Please select a patient first.");
+            return;
+        }
+
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("Select Patient Primary Baseline Photograph");
+        chooser.getExtensionFilters().addAll(
+                new FileChooser.ExtensionFilter("Image Files (*.png, *.jpg, *.jpeg)", "*.png", "*.jpg", "*.jpeg")
+        );
+        File file = chooser.showOpenDialog(getScene().getWindow());
+        if (file == null) return;
+
+        TextInputDialog noteDialog = new TextInputDialog("Baseline clinical profile / facial presentation");
+        noteDialog.setTitle("Primary Baseline Photograph Details");
+        noteDialog.setHeaderText("Set Primary Baseline Photograph for " + sel.patient.firstName() + " " + sel.patient.lastName());
+        noteDialog.setContentText("Enter clinical baseline note:");
+
+        noteDialog.showAndWait().ifPresent(note -> {
+            try {
+                byte[] bytes = Files.readAllBytes(file.toPath());
+                String ext = file.getName().substring(file.getName().lastIndexOf('.') + 1).toUpperCase();
+                ImageVaultService.StoreResult res = imageVault.storeImage(bytes, ext);
+
+                ClinicalImage img = new ClinicalImage(
+                        UUID.randomUUID().toString(),
+                        sel.patient.id(),
+                        null,
+                        res.contentHash(),
+                        res.fileFormat(),
+                        "Primary Baseline",
+                        "sRGB",
+                        50.0, 0.0, 0.0, 0.0,
+                        note.trim(),
+                        Instant.now(),
+                        List.of()
+                );
+                clinicDao.saveClinicalImage(img);
+                loadPhotographicTimeline(sel.patient.id());
+                statusLabel.setText("Primary baseline photograph saved successfully.");
+            } catch (Exception ex) {
+                log.error("Failed to set baseline photograph", ex);
+                showAlert("Error", "Could not save baseline photograph: " + ex.getMessage());
+            }
+        });
+    }
+
+    private void handleAddFollowUpPhoto() {
+        PatientItem sel = patientCombo.getValue();
+        if (sel == null) {
+            showAlert("No Patient Selected", "Please select a patient first.");
+            return;
+        }
+
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("Select Follow-Up Clinical Photograph");
+        chooser.getExtensionFilters().addAll(
+                new FileChooser.ExtensionFilter("Image Files (*.png, *.jpg, *.jpeg)", "*.png", "*.jpg", "*.jpeg")
+        );
+        File file = chooser.showOpenDialog(getScene().getWindow());
+        if (file == null) return;
+
+        Dialog<String[]> dialog = new Dialog<>();
+        dialog.setTitle("Follow-Up Photo Details");
+        dialog.setHeaderText("Add serial follow-up photograph with timestamp for " + sel.patient.firstName());
+
+        ButtonType btnSave = new ButtonType("Save Photo", ButtonBar.ButtonData.OK_DONE);
+        dialog.getDialogPane().getButtonTypes().addAll(btnSave, ButtonType.CANCEL);
+
+        GridPane grid = new GridPane();
+        grid.setHgap(8); grid.setVgap(8); grid.setPadding(new Insets(14));
+
+        TextField bodyPartField = new TextField("Skin / Face Lesion");
+        TextField noteField = new TextField("Eczematous patches healing; reduced inflammation post-prescribing");
+
+        grid.addRow(0, new Label("Anatomical Body Part:"), bodyPartField);
+        grid.addRow(1, new Label("Clinical Observations:"), noteField);
+
+        dialog.getDialogPane().setContent(grid);
+        dialog.setResultConverter(btn -> btn == btnSave ? new String[]{bodyPartField.getText().trim(), noteField.getText().trim()} : null);
+
+        dialog.showAndWait().ifPresent(arr -> {
+            try {
+                byte[] bytes = Files.readAllBytes(file.toPath());
+                String ext = file.getName().substring(file.getName().lastIndexOf('.') + 1).toUpperCase();
+                ImageVaultService.StoreResult res = imageVault.storeImage(bytes, ext);
+
+                ClinicalImage img = new ClinicalImage(
+                        UUID.randomUUID().toString(),
+                        sel.patient.id(),
+                        null,
+                        res.contentHash(),
+                        res.fileFormat(),
+                        arr[0].isBlank() ? "Follow-Up" : arr[0],
+                        "sRGB",
+                        50.0, 0.0, 0.0, 1.0,
+                        arr[1],
+                        Instant.now(),
+                        List.of()
+                );
+                clinicDao.saveClinicalImage(img);
+                loadPhotographicTimeline(sel.patient.id());
+                statusLabel.setText("Serial follow-up photograph recorded with timestamp.");
+            } catch (Exception ex) {
+                log.error("Failed to add follow-up photo", ex);
+                showAlert("Error", "Could not save photo: " + ex.getMessage());
+            }
+        });
+    }
+
+    private void handleViewSelectedPhoto() {
+        PhotoTimelineItem sel = photoTimelineList.getSelectionModel().getSelectedItem();
+        if (sel == null) {
+            showAlert("No Photo Selected", "Please select a follow-up photo from the timeline to view.");
+            return;
+        }
+
+        try {
+            BufferedImage bimg = imageVault.retrieveBufferedImage(sel.image.contentHash());
+            if (bimg == null) {
+                showAlert("Image Not Found", "Could not retrieve image from storage vault.");
+                return;
+            }
+
+            Dialog<Void> dlg = new Dialog<>();
+            dlg.setTitle("Clinical Photograph Viewer — " + sel.image.bodyPart());
+            dlg.setHeaderText("Captured: " + sel.image.capturedAt() + "\nNotes: " + sel.image.notes());
+            dlg.getDialogPane().getButtonTypes().add(ButtonType.CLOSE);
+
+            ImageView iv = new ImageView(SwingFXUtils.toFXImage(bimg, null));
+            iv.setPreserveRatio(true);
+            iv.setFitWidth(650);
+            iv.setFitHeight(500);
+
+            ScrollPane sp = new ScrollPane(new StackPane(iv));
+            sp.setPrefSize(670, 520);
+            dlg.getDialogPane().setContent(sp);
+            dlg.showAndWait();
+        } catch (Exception e) {
+            log.error("Failed to view image", e);
+            showAlert("Error", "Failed to display image: " + e.getMessage());
         }
     }
 
@@ -765,7 +1170,7 @@ public class CaseTakingView extends BorderPane {
 
             clinicDao.saveConsultation(c);
 
-            // Automatically dispatch order to Dispensary Pharmacy
+            // Automatically dispatch order and invoice to Dispensary Pharmacy & Billing POS
             if (!prescriptions.isEmpty()) {
                 Prescription pr = prescriptions.get(0);
                 String orderId = UUID.randomUUID().toString();
@@ -787,10 +1192,43 @@ public class CaseTakingView extends BorderPane {
                         Instant.now(), null, orderItems
                 );
                 clinicDao.createPharmacyOrder(po);
+
+                // Create Dispensary Bill with Doctor Consultation Fee + Medicine Fee + 5% GST
+                double docFee = 500.0;
+                try { docFee = Double.parseDouble(doctorFeeField.getText().trim()); } catch (Exception ignored) {}
+                double medFee = 150.0;
+                try { medFee = Double.parseDouble(medicineFeeField.getText().trim()); } catch (Exception ignored) {}
+                double subtotal = docFee + medFee;
+                double gst = Math.round((medFee * 0.05) * 100.0) / 100.0; // 5% GST on medicines
+                double total = subtotal + gst;
+
+                String billNum = "INV-" + LocalDate.now().getYear() + "-" + (System.currentTimeMillis() % 100000);
+                String itemsJson = String.format("[{\"desc\":\"Doctor Consultation Fee (%s)\",\"qty\":1,\"rate\":%.2f,\"amount\":%.2f},{\"desc\":\"%s %s %s (%s)\",\"qty\":1,\"rate\":%.2f,\"amount\":%.2f}]",
+                        docItem != null ? docItem.doctor.fullName() : "Consulting Doctor", docFee, docFee,
+                        pr.remedyName(), pr.potency(), pr.scale().name(), pr.posologyInstructions(), medFee, medFee);
+
+                PharmacyBill bill = new PharmacyBill(
+                        UUID.randomUUID().toString(),
+                        billNum,
+                        orderId,
+                        sel.patient.id(),
+                        sel.patient.firstName() + " " + sel.patient.lastName(),
+                        docItem != null ? docItem.doctor.fullName() : "Dr. Practitioner",
+                        Instant.now(),
+                        subtotal,
+                        0.0,
+                        gst,
+                        total,
+                        "CASH",
+                        "PENDING",
+                        itemsJson
+                );
+                clinicDao.createPharmacyBill(bill);
             }
 
-            statusLabel.setText("Consultation saved and order dispatched to Pharmacy Dispensary.");
+            statusLabel.setText("Consultation saved, prescription dispatched to Dispensary & Billing Register.");
             loadPatientHistory();
+            loadPhotographicTimeline(sel.patient.id());
 
             if (thenPrintPdf) {
                 exportPrescriptionToPdf(docItem != null ? docItem.doctor : null, sel.patient, c);

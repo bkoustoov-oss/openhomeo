@@ -50,6 +50,16 @@ public class KnowledgeBaseSeederTest {
 
     @Test
     public void seedMasterRepertoryDb() throws Exception {
+        Path tsvPath = Path.of("../../openhomeo-core/src/main/resources/data/master_medicines_exhaustive.tsv").toAbsolutePath().normalize();
+        if (!tsvPath.toFile().exists()) {
+            tsvPath = Path.of("openhomeo-core/src/main/resources/data/master_medicines_exhaustive.tsv").toAbsolutePath().normalize();
+        }
+        if (tsvPath.toFile().exists()) {
+            int totalRemedies = MasterCatalogExpander.expandCatalog(tsvPath.toFile());
+            System.out.println("Verified expanded master remedies in TSV: " + totalRemedies);
+            assertTrue(totalRemedies >= 1200, "Remedy count should meet or exceed 1,200 like RadarOpus Diamond tier. Got: " + totalRemedies);
+        }
+
         Path targetPath = Path.of("../../openhomeo-core/src/main/resources/data/master_repertory.db").toAbsolutePath().normalize();
         if (!targetPath.toFile().getParentFile().exists()) {
             targetPath = Path.of("openhomeo-core/src/main/resources/data/master_repertory.db").toAbsolutePath().normalize();

@@ -1737,4 +1737,78 @@ public class ClinicDao {
                 annotations
         );
     }
+
+    // =========================================================================
+    // COMMUNITY PROVINGS INGESTION
+    // =========================================================================
+
+    public record CustomProving(
+            String id,
+            String remedyId,
+            String remedyName,
+            String proverDirector,
+            int provingYear,
+            String section,
+            String symptomsText,
+            String sourceFormat,
+            Instant importedAt
+    ) {}
+
+    public void saveCustomProving(CustomProving cp) throws SQLException {
+        String sql = """
+            INSERT INTO custom_provings (id, remedy_id, remedy_name, prover_director, proving_year, section, symptoms_text, source_format, imported_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """;
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, cp.id());
+            ps.setString(2, cp.remedyId());
+            ps.setString(3, cp.remedyName());
+            ps.setString(4, cp.proverDirector());
+            ps.setInt(5, cp.provingYear());
+            ps.setString(6, cp.section());
+            ps.setString(7, cp.symptomsText());
+            ps.setString(8, cp.sourceFormat());
+            ps.setTimestamp(9, Timestamp.from(cp.importedAt()));
+            ps.executeUpdate();
+        }
+    }
+
+    public List<CustomProving> getCustomProvings(String remedyId) throws SQLException {
+        List<CustomProving> list = new ArrayList<>();
+        String sql = "SELECT * FROM custom_provings WHERE remedy_id = ? ORDER BY imported_at DESC";
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, remedyId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    list.add(new CustomProving(
+                            rs.getString("id"),
+                            rs.getString("remedy_id"),
+                            rs.getString("remedy_name"),
+                            rs.getString("prover_director"),
+                            rs.getInt("proving_year"),
+                            rs.getString("section"),
+                            rs.getString("symptoms_text"),
+                            rs.getString("source_format"),
+                            rs.getTimestamp("imported_at").toInstant()
+                    ));
+                }
+            }
+        }
+        return list;
+    }
+
+    public void recordOtaUpdate(String version, String releaseDate, String hash, String status) throws SQLException {
+        String sql = "INSERT INTO ota_update_history (id, version, release_date, repertory_hash, status) VALUES (?, ?, ?, ?, ?)";
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, UUID.randomUUID().toString());
+            ps.setString(2, version);
+            ps.setString(3, releaseDate);
+            ps.setString(4, hash);
+            ps.setString(5, status);
+            ps.executeUpdate();
+        }
+    }
 }

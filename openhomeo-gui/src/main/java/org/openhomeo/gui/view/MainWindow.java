@@ -18,9 +18,11 @@ import org.openhomeo.core.model.User;
 import org.openhomeo.core.repertory.RepertorizationEngine;
 import org.openhomeo.core.repertory.SymptomClipboard;
 import org.openhomeo.core.security.SecurityService;
+import org.openhomeo.core.server.MobileCompanionServer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.net.InetAddress;
 import java.util.List;
 
 /**
@@ -51,6 +53,7 @@ public class MainWindow {
     private ListView<String> searchResultsList;
     private TreeView<String> rubricTreeView;
     private HBox clipboardBadgeBox;
+    private MobileCompanionServer companionServer;
 
     public MainWindow(Stage stage,
                       MasterKnowledgeDao masterDao,
@@ -110,7 +113,7 @@ public class MainWindow {
         Tab tabRep = new Tab("Repertory & Analysis Matrix", repPane);
 
         // Tab 2: Case-Taking & Prescriptions
-        caseTakingView = new CaseTakingView(clinicDao, masterDao, clipboard);
+        caseTakingView = new CaseTakingView(clinicDao, masterDao, clipboard, imageVault);
         Tab tabCase = new Tab("Clinical Case-Taking (L-S-M-C)", caseTakingView);
 
         // Tab 3: Pharmacy Dispensary & Live Stock Register
@@ -126,6 +129,13 @@ public class MainWindow {
         Tab tabMM = new Tab("Materia Medica Library", mmView);
 
         tabPane.getTabs().addAll(tabRep, tabCase, tabPharmacy, tabImage, tabMM);
+
+        // Listen for tab changes to auto-refresh pharmacy inventory & dispatched orders/bills
+        tabPane.getSelectionModel().selectedItemProperty().addListener((obs, oldTab, newTab) -> {
+            if (newTab == tabPharmacy) {
+                pharmacyView.refreshAllData();
+            }
+        });
 
         // Role-based initial tab selection & Admin Pane mounting
         if (securityService.getCurrentSession() != null) {
@@ -189,6 +199,11 @@ public class MainWindow {
         userLabel.getStyleClass().add(Styles.TEXT_BOLD);
         userLabel.setStyle("-fx-background-color: #e0f2fe; -fx-text-fill: #0369a1; -fx-padding: 4 8 4 8; -fx-background-radius: 6px;");
 
+        Button companionBtn = new Button("📱 Bedside Companion");
+        companionBtn.getStyleClass().add(Styles.BUTTON_OUTLINED);
+        companionBtn.setTooltip(new Tooltip("Launch Bedside Mobile & Tablet Companion Web Service on Local Wi-Fi"));
+        companionBtn.setOnAction(e -> showCompanionServerDialog());
+
         Button lockBtn = new Button("Lock / Switch");
         lockBtn.getStyleClass().add(Styles.BUTTON_OUTLINED);
         lockBtn.setTooltip(new Tooltip("Lock session and switch user (Admin / Doctor / Pharmacist)"));
@@ -199,8 +214,37 @@ public class MainWindow {
             }
         });
 
-        header.getChildren().addAll(brand, new Separator(), searchField, searchBtn, new Separator(), clipboardBadgeBox, spacer, userLabel, themeToggle, lockBtn);
+        header.getChildren().addAll(brand, new Separator(), searchField, searchBtn, new Separator(), clipboardBadgeBox, spacer, companionBtn, userLabel, themeToggle, lockBtn);
         return header;
+    }
+
+    private void showCompanionServerDialog() {
+        if (companionServer == null) {
+            companionServer = new MobileCompanionServer(clinicDao, masterDao, 8090);
+            try {
+                companionServer.start();
+            } catch (Exception ex) {
+                log.error("Failed to start Mobile Companion Server", ex);
+            }
+        }
+
+        String localIp = "127.0.0.1";
+        try {
+            localIp = InetAddress.getLocalHost().getHostAddress();
+        } catch (Exception ignored) {}
+
+        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.setTitle("Mobile / Tablet Bedside Companion");
+        alert.setHeaderText("Bedside Companion Web Service Active (Port 8090)");
+        alert.setContentText(String.format(
+                "Bedside companion web app is running.\n\n" +
+                "• Local URL: http://localhost:8090/\n" +
+                "• Wi-Fi / Tablet URL: http://%s:8090/\n\n" +
+                "Open this URL on any iPad, Android tablet, or smartphone connected to the clinic's local Wi-Fi.\n" +
+                "Physicians can take bedside patient case notes, review materia medica, and examine symptoms seamlessly.",
+                localIp
+        ));
+        alert.showAndWait();
     }
 
     private void refreshClipboardBadges() {

@@ -68,9 +68,9 @@ public class MedicineConstituentsAndFaithDossierTest {
         assertFalse(searchResults.isEmpty());
         assertEquals("calen", searchResults.get(0).remedyId());
 
-        // Verify exhaustive superset count (880+ remedies from combined Indian Pharmacopoeia and world polychrests)
+        // Verify exhaustive superset count (1200+ remedies matching and exceeding RadarOpus Diamond tier)
         List<MedicineConstituent> allConstituents = clinicDao.getAllMedicineConstituents();
-        assertTrue(allConstituents.size() >= 880, "Master medicine constituent database must contain >= 880 remedies, found: " + allConstituents.size());
+        assertTrue(allConstituents.size() >= 1200, "Master medicine constituent database must contain >= 1200 remedies, found: " + allConstituents.size());
     }
 
     @Test
