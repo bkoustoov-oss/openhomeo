@@ -823,6 +823,22 @@ public class KnowledgeBaseSeeder {
             insertMM(ps, "tinos-c", "Homoeopathic Pharmacopoeia of India", "Monographs of Indian Medicinal Plants", "MODALITIES",
                     "Worse: motion, morning, heat. Better: quiet rest, cool environment.");
 
+            // Seed Clinical Rhymes & Keynotes for all remedies that have verses
+            try (Statement sRem = conn.createStatement();
+                 ResultSet rsRem = sRem.executeQuery("SELECT id, full_name, common_name FROM remedies")) {
+                while (rsRem.next()) {
+                    String remId = rsRem.getString("id");
+                    String remFullName = rsRem.getString("full_name");
+                    String remCommon = rsRem.getString("common_name");
+                    String rhyme = org.openhomeo.core.materia_medica.HomeopathicClinicalRhymes.findRhyme(remId, remFullName, remCommon);
+                    if (rhyme != null) {
+                        insertMM(ps, remId, "Classical Clinical Mnemonic Verses",
+                                "Clinical Rhymes & Keynotes for Remedy Selection", "CLINICAL RHYMES & KEYNOTES",
+                                "🎵 CLINICAL RHYME & KEYNOTE FOR MEDICINE CHOOSING:\n\n" + rhyme);
+                    }
+                }
+            }
+
             ps.executeBatch();
         }
     }

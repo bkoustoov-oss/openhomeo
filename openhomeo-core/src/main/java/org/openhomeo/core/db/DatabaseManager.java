@@ -48,7 +48,7 @@ public class DatabaseManager {
             try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + masterDbPath);
                  Statement stmt = conn.createStatement();
                  ResultSet rs = stmt.executeQuery("SELECT count(*) FROM remedies")) {
-                if (rs.next() && rs.getInt(1) < 300) {
+                if (rs.next() && rs.getInt(1) < 800) {
                     needsUpdate = true;
                     log.info("Existing master repertory database is outdated (remedy count = {}). Updating to latest knowledge base...", rs.getInt(1));
                 }

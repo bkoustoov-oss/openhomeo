@@ -67,6 +67,39 @@ public class MedicineConstituentsAndFaithDossierTest {
         List<MedicineConstituent> searchResults = clinicDao.searchMedicineConstituents("fibroblast");
         assertFalse(searchResults.isEmpty());
         assertEquals("calen", searchResults.get(0).remedyId());
+
+        // Verify exhaustive superset count (880+ remedies from combined Indian Pharmacopoeia and world polychrests)
+        List<MedicineConstituent> allConstituents = clinicDao.getAllMedicineConstituents();
+        assertTrue(allConstituents.size() >= 880, "Master medicine constituent database must contain >= 880 remedies, found: " + allConstituents.size());
+    }
+
+    @Test
+    void testClassicalAndIndianClinicalRhymes() {
+        // Polychrests
+        String aconRhyme = org.openhomeo.core.materia_medica.HomeopathicClinicalRhymes.getRhyme("acon");
+        assertNotNull(aconRhyme);
+        assertTrue(aconRhyme.contains("Aconite calms the tempest cry"));
+
+        String arnRhyme = org.openhomeo.core.materia_medica.HomeopathicClinicalRhymes.getRhyme("arn");
+        assertNotNull(arnRhyme);
+        assertTrue(arnRhyme.contains("Arnica brings the healing true"));
+
+        String nuxRhyme = org.openhomeo.core.materia_medica.HomeopathicClinicalRhymes.getRhyme("nux-v");
+        assertNotNull(nuxRhyme);
+        assertTrue(nuxRhyme.contains("restores the digestive rule"));
+
+        // Indian indigenous remedies
+        String neemRhyme = org.openhomeo.core.materia_medica.HomeopathicClinicalRhymes.findRhyme("azad-i", "Azadirachta indica", "Neem / Margosa Tree / Nimba");
+        assertNotNull(neemRhyme);
+        assertTrue(neemRhyme.contains("Neem"));
+
+        String arjunRhyme = org.openhomeo.core.materia_medica.HomeopathicClinicalRhymes.findRhyme("arjun", "Terminalia arjuna", "Arjuna");
+        assertNotNull(arjunRhyme);
+        assertTrue(arjunRhyme.contains("Arjuna"));
+
+        String giloyRhyme = org.openhomeo.core.materia_medica.HomeopathicClinicalRhymes.findRhyme("tinos-c", "Tinospora cordifolia", "Giloy / Guduchi");
+        assertNotNull(giloyRhyme);
+        assertTrue(giloyRhyme.contains("Giloy"));
     }
 
     @Test

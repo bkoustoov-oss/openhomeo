@@ -5,6 +5,7 @@ import javafx.geometry.Insets;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
 import org.openhomeo.core.db.MasterKnowledgeDao;
+import org.openhomeo.core.materia_medica.HomeopathicClinicalRhymes;
 import org.openhomeo.core.model.MateriaMedicaEntry;
 import org.openhomeo.core.model.Remedy;
 import org.openhomeo.core.model.RemedyRelationship;
@@ -81,7 +82,7 @@ public class MateriaMedicaView extends BorderPane {
         secLbl.getStyleClass().add(Styles.TEXT_BOLD);
 
         sectionsList = new ListView<>();
-        sectionsList.getItems().addAll("ALL SECTIONS", "GENERALITIES", "MIND", "HEAD", "STOMACH", "MODALITIES");
+        sectionsList.getItems().addAll("ALL SECTIONS", "CLINICAL RHYMES & KEYNOTES", "GENERALITIES", "MIND", "HEAD", "STOMACH", "MODALITIES");
         sectionsList.getSelectionModel().select(0);
         sectionsList.getSelectionModel().selectedItemProperty().addListener((obs, o, n) -> {
             loadRemedyText();
@@ -196,9 +197,29 @@ public class MateriaMedicaView extends BorderPane {
                 sb.append(" | Thermal: ").append(r.thermal());
                 sb.append(" | Thirst: ").append(r.thirst());
                 sb.append("\n========================================================================\n\n");
+
+                // Prominently display Classical Clinical Rhymes & Keynotes for Remedy Selection
+                String rhyme = HomeopathicClinicalRhymes.findRhyme(r.id(), r.fullName(), r.commonName());
+                if (filterSection == null || filterSection.equals("ALL SECTIONS") || filterSection.equals("CLINICAL RHYMES & KEYNOTES")) {
+                    if (rhyme != null) {
+                        sb.append("------------------------------------------------------------------------\n");
+                        sb.append("🎵 CLINICAL RHYME & KEYNOTE FOR MEDICINE CHOOSING (E. B. Nash / Allen / Master Verses):\n");
+                        sb.append("------------------------------------------------------------------------\n");
+                        sb.append(rhyme).append("\n\n");
+                    } else if ("CLINICAL RHYMES & KEYNOTES".equals(filterSection)) {
+                        sb.append("------------------------------------------------------------------------\n");
+                        sb.append("🎵 CLINICAL KEYNOTE SUMMARY FOR MEDICINE CHOOSING:\n");
+                        sb.append("------------------------------------------------------------------------\n");
+                        sb.append("Remedy: ").append(r.fullName()).append(" (").append(r.abbr()).append(")\n");
+                        sb.append("• Kingdom: ").append(r.kingdom()).append("\n");
+                        sb.append("• Thermal / Thirst: ").append(r.thermal()).append(" / ").append(r.thirst()).append("\n");
+                        sb.append("• Dominant Miasm: ").append(r.miasm()).append("\n");
+                        sb.append("• Totality Note: Refer to symptom modalities and affinities below.\n\n");
+                    }
+                }
             }
 
-            boolean sectionFound = false;
+            boolean sectionFound = "CLINICAL RHYMES & KEYNOTES".equals(filterSection);
             for (MateriaMedicaEntry e : entries) {
                 if (filterSection == null || filterSection.equals("ALL SECTIONS") || filterSection.equalsIgnoreCase(e.section())) {
                     sb.append("--- ").append(e.section()).append(" [").append(e.author()).append(" - ").append(e.bookTitle()).append("] ---\n\n");

@@ -13,6 +13,7 @@ import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 import org.openhomeo.core.db.ClinicDao;
 import org.openhomeo.core.db.MasterKnowledgeDao;
+import org.openhomeo.core.materia_medica.HomeopathicClinicalRhymes;
 import org.openhomeo.core.model.*;
 import org.openhomeo.core.security.SecurityService;
 import org.slf4j.Logger;
@@ -856,6 +857,8 @@ public class PharmacyDispensaryView extends BorderPane {
         TextArea txtPharm = createMonographTextArea();
         TextArea txtOrgan = createMonographTextArea();
         TextArea txtTox = createMonographTextArea();
+        TextArea txtRhyme = createMonographTextArea();
+        txtRhyme.setPrefRowCount(4);
         TextArea txtAnnex = createMonographTextArea();
 
         Button btnProposeRemark = new Button("📝 Propose Scientific Remark / Clinical Correction");
@@ -865,6 +868,7 @@ public class PharmacyDispensaryView extends BorderPane {
         detailCard.getChildren().addAll(
                 lblTitle, lblCode, lblIndian,
                 new Separator(),
+                new Label("🎵 Clinical Rhyme & Keynote for Medicine Choosing:"), txtRhyme,
                 new Label("🔬 Active Phytochemical, Biochemical & Alkaloid/Glycoside Constituents:"), txtActive,
                 new Label("⚙️ Scientific Mode of Action (Cellular & Pharmacological):"), txtPharm,
                 new Label("🎯 Organ System & Tissue Affinity:"), txtOrgan,
@@ -887,9 +891,18 @@ public class PharmacyDispensaryView extends BorderPane {
                 txtAnnex.setText((mc.annexedRemarks() != null && !mc.annexedRemarks().isBlank())
                         ? mc.annexedRemarks()
                         : "No annexed remarks yet. Doctors or pharmacists may submit proposed observations below.");
+
+                String rhyme = HomeopathicClinicalRhymes.findRhyme(mc.remedyId(), mc.remedyName(), mc.commonAndIndianName());
+                if (rhyme != null) {
+                    txtRhyme.setText(rhyme);
+                } else {
+                    txtRhyme.setText("No clinical mnemonic rhyme registered in database for this remedy. (See Materia Medica library for full provings).");
+                }
+
                 btnProposeRemark.setDisable(false);
             } else {
                 lblCode.setText("");
+                txtRhyme.setText("");
                 btnProposeRemark.setDisable(true);
             }
         });
