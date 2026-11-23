@@ -614,6 +614,19 @@ public class PharmacyDispensaryView extends BorderPane {
         TableColumn<PharmacyBill, String> colDoc = new TableColumn<>("Prescribing Doctor");
         colDoc.setCellValueFactory(d -> new SimpleStringProperty(d.getValue().doctorName()));
 
+        TableColumn<PharmacyBill, String> colFeePoint = new TableColumn<>("Doctor Fee Status");
+        colFeePoint.setCellValueFactory(d -> {
+            String items = d.getValue().itemsJson();
+            if (items != null && items.contains("DOCTOR_DESK_PAID")) {
+                return new SimpleStringProperty("✓ Paid at Doctor Desk");
+            } else if (items != null && items.contains("Doctor Consultation Fee")) {
+                return new SimpleStringProperty("⚠ Collect at Dispensary");
+            } else {
+                return new SimpleStringProperty("Medicine Only");
+            }
+        });
+        colFeePoint.setPrefWidth(160);
+
         TableColumn<PharmacyBill, String> colSub = new TableColumn<>("Subtotal (₹)");
         colSub.setCellValueFactory(d -> new SimpleStringProperty("₹" + String.format("%.2f", d.getValue().subtotalInr())));
 
@@ -629,7 +642,7 @@ public class PharmacyDispensaryView extends BorderPane {
         TableColumn<PharmacyBill, String> colStatus = new TableColumn<>("Status");
         colStatus.setCellValueFactory(d -> new SimpleStringProperty(d.getValue().paymentStatus()));
 
-        billsTable.getColumns().addAll(colNum, colPatient, colDoc, colSub, colGst, colTotal, colMode, colStatus);
+        billsTable.getColumns().addAll(colNum, colPatient, colDoc, colFeePoint, colSub, colGst, colTotal, colMode, colStatus);
         VBox.setVgrow(billsTable, Priority.ALWAYS);
 
         // Actions

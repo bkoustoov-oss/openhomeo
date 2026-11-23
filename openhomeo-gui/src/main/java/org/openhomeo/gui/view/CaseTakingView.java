@@ -84,12 +84,13 @@ public class CaseTakingView extends BorderPane {
     private final List<Remedy> allPrescriptionRemedies = new ArrayList<>();
     private final TextField remedySearchField;
     private final ComboBox<RemedyItem> remedyCombo;
-    private final TextField potencyField;
+    private final ComboBox<String> potencyCombo;
     private final ComboBox<Prescription.PotencyScale> scaleCombo;
     private final TextField posologyField;
     private final TextField repetitionField;
     private final TextField doctorFeeField;
     private final TextField medicineFeeField;
+    private final ComboBox<String> feeCollectionPointCombo;
 
     // Printing Controls
     private final CheckBox autoFitCheck;
@@ -332,17 +333,20 @@ public class CaseTakingView extends BorderPane {
         HBox remedyBox = new HBox(6, remedySearchField, remedyCombo);
         remedyBox.setAlignment(Pos.CENTER_LEFT);
 
-        potencyField = new TextField("200");
-        potencyField.setPrefWidth(80);
-
-        scaleCombo = new ComboBox<>();
-        scaleCombo.getItems().addAll(Prescription.PotencyScale.values());
-        scaleCombo.setValue(Prescription.PotencyScale.CENTESIMAL);
+        potencyCombo = new ComboBox<>();
+        potencyCombo.setEditable(true);
+        potencyCombo.setPrefWidth(140);
 
         posologyField = new TextField("4 globules / 1 dose");
         posologyField.setPrefWidth(180);
 
         repetitionField = new TextField("Single dose at bedtime, then placebo / SAC-LAC");
+
+        scaleCombo = new ComboBox<>();
+        scaleCombo.getItems().addAll(Prescription.PotencyScale.values());
+        scaleCombo.setValue(Prescription.PotencyScale.CENTESIMAL);
+        scaleCombo.setOnAction(e -> updatePotencyDropdownForScale(scaleCombo.getValue()));
+        updatePotencyDropdownForScale(Prescription.PotencyScale.CENTESIMAL);
 
         doctorFeeField = new TextField("500.00");
         doctorFeeField.setPrefWidth(100);
@@ -350,10 +354,18 @@ public class CaseTakingView extends BorderPane {
         medicineFeeField = new TextField("150.00");
         medicineFeeField.setPrefWidth(100);
 
+        feeCollectionPointCombo = new ComboBox<>();
+        feeCollectionPointCombo.getItems().addAll(
+                "Doctor Desk / Reception (Doctor Fee Already Collected)",
+                "Dispensary Counter (Collect Both Doctor & Medicine Fee)"
+        );
+        feeCollectionPointCombo.setValue("Doctor Desk / Reception (Doctor Fee Already Collected)");
+        feeCollectionPointCombo.setPrefWidth(350);
+
         prescGrid.add(new Label("Remedy:"), 0, 0);
         prescGrid.add(remedyBox, 1, 0);
         prescGrid.add(new Label("Potency:"), 2, 0);
-        prescGrid.add(potencyField, 3, 0);
+        prescGrid.add(potencyCombo, 3, 0);
 
         prescGrid.add(new Label("Scale:"), 0, 1);
         prescGrid.add(scaleCombo, 1, 1);
@@ -367,6 +379,9 @@ public class CaseTakingView extends BorderPane {
         prescGrid.add(doctorFeeField, 1, 3);
         prescGrid.add(new Label("Medicine Fee (₹):"), 2, 3);
         prescGrid.add(medicineFeeField, 3, 3);
+
+        prescGrid.add(new Label("Fee Collection:"), 0, 4);
+        prescGrid.add(feeCollectionPointCombo, 1, 4, 3, 1);
 
         prescPane.setContent(prescGrid);
 
@@ -616,10 +631,11 @@ public class CaseTakingView extends BorderPane {
                     break;
                 }
             }
-            potencyField.setText(pr.potency() != null ? pr.potency() : "200");
             if (pr.scale() != null) {
                 scaleCombo.setValue(pr.scale());
+                updatePotencyDropdownForScale(pr.scale());
             }
+            setPotencyValue(pr.potency());
             posologyField.setText(pr.posologyInstructions() != null ? pr.posologyInstructions() : "4 globules / 1 dose");
             repetitionField.setText(pr.repetitionFrequency() != null ? pr.repetitionFrequency() : "Single dose");
         }
@@ -637,14 +653,62 @@ public class CaseTakingView extends BorderPane {
         mindArea.clear();
         physicalsArea.clear();
         heringsLawArea.clear();
-        potencyField.setText("200");
         scaleCombo.setValue(Prescription.PotencyScale.CENTESIMAL);
+        updatePotencyDropdownForScale(Prescription.PotencyScale.CENTESIMAL);
+        setPotencyValue("200");
         posologyField.setText("4 globules / 1 dose");
         repetitionField.setText("Single dose at bedtime, then placebo / SAC-LAC");
         doctorFeeField.setText("500.00");
         medicineFeeField.setText("150.00");
+        feeCollectionPointCombo.setValue("Doctor Desk / Reception (Doctor Fee Already Collected)");
         computeEntryPointSuggestions();
         statusLabel.setText("Form cleared for new follow-up consultation.");
+    }
+
+    private void updatePotencyDropdownForScale(Prescription.PotencyScale scale) {
+        if (scale == null) return;
+        potencyCombo.getItems().clear();
+        switch (scale) {
+            case CENTESIMAL -> {
+                potencyCombo.getItems().addAll("30", "200", "1M", "10M", "50M", "CM", "3", "6", "12");
+                setPotencyValue("200");
+                if (posologyField.getText().isBlank() || posologyField.getText().contains("drops")) {
+                    posologyField.setText("4 globules / 1 dose");
+                    repetitionField.setText("Single dose at bedtime, then placebo / SAC-LAC");
+                }
+            }
+            case DECIMAL -> {
+                potencyCombo.getItems().addAll("Q (Mother Tincture)", "3X", "6X", "12X", "30X", "200X", "1X", "2X");
+                setPotencyValue("Q (Mother Tincture)");
+                posologyField.setText("10-15 drops in 1/4 cup water");
+                repetitionField.setText("Three times daily before meals (TID)");
+            }
+            case FIFTY_MILLESIMAL -> {
+                potencyCombo.getItems().addAll(
+                        "LM 0/1", "LM 0/2", "LM 0/3", "LM 0/4", "LM 0/5", "LM 0/6",
+                        "LM 0/7", "LM 0/8", "LM 0/9", "LM 0/10", "LM 0/12", "LM 0/18", "LM 0/24", "LM 0/30"
+                );
+                setPotencyValue("LM 0/1");
+                posologyField.setText("1 tablespoon from 120ml bottle with 10 succussions");
+                repetitionField.setText("Once daily morning on empty stomach (Organon §248)");
+            }
+        }
+    }
+
+    private String getPotencyValue() {
+        String val = potencyCombo.getValue();
+        if (val == null || val.isBlank()) {
+            val = potencyCombo.getEditor() != null ? potencyCombo.getEditor().getText() : "";
+        }
+        return (val != null && !val.isBlank()) ? val.trim() : "200";
+    }
+
+    private void setPotencyValue(String pot) {
+        String p = (pot != null && !pot.isBlank()) ? pot.trim() : "200";
+        potencyCombo.setValue(p);
+        if (potencyCombo.getEditor() != null) {
+            potencyCombo.getEditor().setText(p);
+        }
     }
 
     private void updatePatientDemographicsBanner(Patient p) {
@@ -998,13 +1062,15 @@ public class CaseTakingView extends BorderPane {
         }
 
         if (currentSuggestedRemedy.suggestedPotencyScale().startsWith("Q")) {
-            potencyField.setText("Q");
             scaleCombo.setValue(Prescription.PotencyScale.DECIMAL);
+            updatePotencyDropdownForScale(Prescription.PotencyScale.DECIMAL);
+            setPotencyValue("Q (Mother Tincture)");
             posologyField.setText("10-15 drops in 1/4 cup water");
             repetitionField.setText("Three times daily before meals (TID)");
         } else {
-            potencyField.setText("200");
             scaleCombo.setValue(Prescription.PotencyScale.CENTESIMAL);
+            updatePotencyDropdownForScale(Prescription.PotencyScale.CENTESIMAL);
+            setPotencyValue("200");
             posologyField.setText("4 medicated globules / 1 dose");
             repetitionField.setText("Night and morning for 3 days, then wait & watch");
         }
@@ -1135,7 +1201,7 @@ public class CaseTakingView extends BorderPane {
                 PrescriptionLogicAnalyzer analyzer = new PrescriptionLogicAnalyzer();
                 PrescriptionLogicAnalyzer.AnalysisResult analysis = analyzer.analyzePrescription(
                         remItem.remedy.id(), remItem.remedy.fullName(),
-                        potencyField.getText().trim(), scaleCombo.getValue(),
+                        getPotencyValue(), scaleCombo.getValue(),
                         repetitionField.getText().trim(), pastRx,
                         complaint, heringsLawArea.getText().trim()
                 );
@@ -1151,7 +1217,7 @@ public class CaseTakingView extends BorderPane {
                 prescriptions.add(new Prescription(
                         UUID.randomUUID().toString(), consultId,
                         remItem.remedy.id(), remItem.remedy.fullName(),
-                        potencyField.getText().trim(),
+                        getPotencyValue(),
                         scaleCombo.getValue(),
                         posologyField.getText().trim(),
                         repetitionField.getText().trim(),
@@ -1175,13 +1241,26 @@ public class CaseTakingView extends BorderPane {
                 Prescription pr = prescriptions.get(0);
                 String orderId = UUID.randomUUID().toString();
                 String orderNum = "ORD-" + LocalDate.now().getYear() + "-" + (System.currentTimeMillis() % 10000);
+
+                boolean collectedAtDoctorDesk = feeCollectionPointCombo.getValue() != null &&
+                        feeCollectionPointCombo.getValue().contains("Doctor Desk");
+
+                double docFee = 500.0;
+                try { docFee = Double.parseDouble(doctorFeeField.getText().trim()); } catch (Exception ignored) {}
+                double medFee = 150.0;
+                try { medFee = Double.parseDouble(medicineFeeField.getText().trim()); } catch (Exception ignored) {}
+
+                String feeNote = collectedAtDoctorDesk
+                        ? String.format("[Doctor Fee ₹%.2f Paid at Desk]", docFee)
+                        : String.format("[Doctor Fee ₹%.2f Due at Pharmacy]", docFee);
+
                 List<PharmacyOrderItem> orderItems = List.of(
                         new PharmacyOrderItem(
                                 UUID.randomUUID().toString(), orderId, pr.remedyId(),
                                 pr.remedyName(), pr.potency() + " " + pr.scale().name(),
                                 "Dispensary Medicated Globules / Dilution",
-                                pr.posologyInstructions() + " | " + pr.repetitionFrequency(),
-                                null, null, null, "SBL / Reckeweg", 1, 100.0, false
+                                pr.posologyInstructions() + " | " + pr.repetitionFrequency() + " | " + feeNote,
+                                null, null, null, "SBL / Reckeweg", 1, medFee, false
                         )
                 );
                 PharmacyOrder po = new PharmacyOrder(
@@ -1193,20 +1272,29 @@ public class CaseTakingView extends BorderPane {
                 );
                 clinicDao.createPharmacyOrder(po);
 
-                // Create Dispensary Bill with Doctor Consultation Fee + Medicine Fee + 5% GST
-                double docFee = 500.0;
-                try { docFee = Double.parseDouble(doctorFeeField.getText().trim()); } catch (Exception ignored) {}
-                double medFee = 150.0;
-                try { medFee = Double.parseDouble(medicineFeeField.getText().trim()); } catch (Exception ignored) {}
-                double subtotal = docFee + medFee;
+                // Create Dispensary Bill based on Fee Collection Point
+                double subtotal;
                 double gst = Math.round((medFee * 0.05) * 100.0) / 100.0; // 5% GST on medicines
-                double total = subtotal + gst;
+                double total;
+                String itemsJson;
+
+                if (collectedAtDoctorDesk) {
+                    // Doctor fee already collected at doctor desk/reception. Dispensary collects ONLY Medicine Fee + GST!
+                    subtotal = medFee;
+                    total = subtotal + gst;
+                    itemsJson = String.format("[{\"desc\":\"Doctor Consultation Fee (Paid at Doctor Desk)\",\"qty\":1,\"rate\":%.2f,\"amount\":0.00,\"collection\":\"DOCTOR_DESK_PAID\"},{\"desc\":\"%s %s %s (%s)\",\"qty\":1,\"rate\":%.2f,\"amount\":%.2f,\"collection\":\"DISPENSARY_PAYABLE\"}]",
+                            docFee,
+                            pr.remedyName(), pr.potency(), pr.scale().name(), pr.posologyInstructions(), medFee, medFee);
+                } else {
+                    // Both Doctor Fee and Medicine Fee are collected together at the Dispensary Cash Counter
+                    subtotal = docFee + medFee;
+                    total = subtotal + gst;
+                    itemsJson = String.format("[{\"desc\":\"Doctor Consultation Fee (%s)\",\"qty\":1,\"rate\":%.2f,\"amount\":%.2f,\"collection\":\"DISPENSARY_PAYABLE\"},{\"desc\":\"%s %s %s (%s)\",\"qty\":1,\"rate\":%.2f,\"amount\":%.2f,\"collection\":\"DISPENSARY_PAYABLE\"}]",
+                            docItem != null ? docItem.doctor.fullName() : "Consulting Doctor", docFee, docFee,
+                            pr.remedyName(), pr.potency(), pr.scale().name(), pr.posologyInstructions(), medFee, medFee);
+                }
 
                 String billNum = "INV-" + LocalDate.now().getYear() + "-" + (System.currentTimeMillis() % 100000);
-                String itemsJson = String.format("[{\"desc\":\"Doctor Consultation Fee (%s)\",\"qty\":1,\"rate\":%.2f,\"amount\":%.2f},{\"desc\":\"%s %s %s (%s)\",\"qty\":1,\"rate\":%.2f,\"amount\":%.2f}]",
-                        docItem != null ? docItem.doctor.fullName() : "Consulting Doctor", docFee, docFee,
-                        pr.remedyName(), pr.potency(), pr.scale().name(), pr.posologyInstructions(), medFee, medFee);
-
                 PharmacyBill bill = new PharmacyBill(
                         UUID.randomUUID().toString(),
                         billNum,
@@ -1540,7 +1628,7 @@ public class CaseTakingView extends BorderPane {
                                     doctor != null ? doctor.fullName() : "Attending Doctor",
                                     remedy.id(),
                                     remedy.fullName(),
-                                    potencyField.getText().trim(),
+                                    getPotencyValue(),
                                     repetitionField.getText().trim(),
                                     check.ruleCode(),
                                     check.severity(),
@@ -1581,7 +1669,7 @@ public class CaseTakingView extends BorderPane {
                     sel.patient.firstName() + " " + sel.patient.lastName(),
                     history,
                     remItem != null ? remItem.remedy : null,
-                    potencyField.getText().trim()
+                    getPotencyValue()
             );
 
             Alert alert = new Alert(Alert.AlertType.INFORMATION);

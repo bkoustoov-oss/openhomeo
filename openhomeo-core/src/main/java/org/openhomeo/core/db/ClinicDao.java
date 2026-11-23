@@ -20,6 +20,10 @@ public class ClinicDao {
         this.dbManager = dbManager;
     }
 
+    public DatabaseManager getDatabaseManager() {
+        return dbManager;
+    }
+
     // =========================================================================
     // DOCTORS / PRACTITIONERS
     // =========================================================================

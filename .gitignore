@@ -29,8 +29,23 @@ Thumbs.db
 Desktop.ini
 .DS_Store
 
-# Application Runtime Output
+# Application Runtime Output & Confidential Clinical Vault
 vault/
+openhomeo_vault/
 *.enc
 data/cache/
 logs/
+*.log
+
+# Strict Clinical Patient Confidentiality & EMR Databases (NEVER COMMIT)
+user_clinic.db*
+*.ohbak
+backups/
+.openhomeo/
+*.bin
+*.bak
+*.pre_restore*
+.user_uploaded/
+credential*.json
+token*.json
+

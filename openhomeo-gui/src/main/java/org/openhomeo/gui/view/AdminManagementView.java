@@ -12,6 +12,7 @@ import javafx.scene.layout.*;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 import org.openhomeo.core.db.ClinicDao;
+import org.openhomeo.core.backup.ClinicBackupService;
 import org.openhomeo.core.materia_medica.ProvingIngestionService;
 import org.openhomeo.core.model.*;
 import org.openhomeo.core.net.NetworkDiscoveryService;
@@ -45,6 +46,7 @@ public class AdminManagementView extends BorderPane {
 
     private final ClinicDao clinicDao;
     private final SecurityService securityService;
+    private final ClinicBackupService backupService;
     private final NetworkDiscoveryService discoveryService = new NetworkDiscoveryService();
 
     // Data lists
@@ -67,6 +69,11 @@ public class AdminManagementView extends BorderPane {
         this.clinicDao = clinicDao;
         this.securityService = securityService;
 
+        File clinicDb = new File(clinicDao.getDatabaseManager().getClinicDbPath());
+        File vaultDir = new File(clinicDb.getParentFile(), "vault");
+        File backupDir = new File(clinicDb.getParentFile(), "backups");
+        this.backupService = new ClinicBackupService(clinicDb, vaultDir, backupDir);
+
         setPadding(new Insets(14));
         setTop(createTopHeader());
 
@@ -81,8 +88,9 @@ public class AdminManagementView extends BorderPane {
         Tab tabNetwork = new Tab("🌐 Network & Remote Settings", createNetworkSettingsPane());
         Tab tabOta = new Tab("🔄 Over-The-Air (OTA) Updates", createOtaUpdatesPane());
         Tab tabProving = new Tab("🧪 Community Proving Ingestion", createProvingIngestionPane());
+        Tab tabBackup = new Tab("☁️ Backup & Google Drive Sync", createBackupAndGoogleDrivePane());
 
-        adminTabs.getTabs().addAll(tabDoctors, tabPharmacists, tabUsers, tabFaith, tabRemarks, tabNetwork, tabOta, tabProving);
+        adminTabs.getTabs().addAll(tabDoctors, tabPharmacists, tabUsers, tabFaith, tabRemarks, tabNetwork, tabOta, tabProving, tabBackup);
         setCenter(adminTabs);
 
         refreshAllData();
@@ -1020,6 +1028,336 @@ public class AdminManagementView extends BorderPane {
                 new Label("Paste Proving JSON:"), pasteArea,
                 new Label("Ingestion Diagnostics & Clinical Status:"), provingLog
         );
+        pane.setCenter(new ScrollPane(content));
+        return pane;
+    }
+
+    private Node createBackupAndGoogleDrivePane() {
+        BorderPane pane = new BorderPane();
+        pane.setPadding(new Insets(16));
+
+        VBox content = new VBox(16);
+        content.setPadding(new Insets(8));
+
+        Label secTitle = new Label("☁️ Clinic Database Backup & Google Drive Synchronization");
+        secTitle.setFont(Font.font("System", FontWeight.BOLD, 16));
+
+        Label infoBadge = new Label(
+                "🛡️ Zero-Loss Clinical Protection: OpenHomeo encapsulates patient records (user_clinic.db), clinical photographs (vault/), " +
+                "and posology history into cryptographically hashed (.ohbak) archives. Sync directly to your Google Drive account with " +
+                "automated remote MD5 checksum verification, or sync to a local Google Drive folder."
+        );
+        infoBadge.setWrapText(true);
+        infoBadge.setStyle("-fx-background-color: rgba(2, 132, 199, 0.1); -fx-border-color: rgba(2, 132, 199, 0.3); -fx-padding: 10px; -fx-background-radius: 6px; -fx-border-radius: 6px;");
+
+        // Two columns: Left is Local Snapshot & Restore; Right is Google Drive Cloud Sync
+        HBox columns = new HBox(16);
+
+        // -------------------------------------------------------------
+        // LEFT COLUMN: Local Snapshots, Verification & Restore
+        // -------------------------------------------------------------
+        VBox leftCol = new VBox(14);
+        leftCol.setPrefWidth(550);
+
+        VBox cardLocal = new VBox(10);
+        cardLocal.setStyle("-fx-background-color: -color-bg-subtle; -fx-padding: 14px; -fx-border-color: -color-border-subtle; -fx-border-radius: 8px; -fx-background-radius: 8px;");
+        Label lblLocalTitle = new Label("📦 Local Timestamped Backup Archive");
+        lblLocalTitle.setFont(Font.font("System", FontWeight.BOLD, 13));
+
+        TextField txtNote = new TextField("Routine Clinical & Inventory Snapshot");
+        txtNote.setPromptText("Enter backup note / reason...");
+
+        Button btnCreateBackup = new Button("📁 Create Instant Backup (.ohbak)");
+        btnCreateBackup.getStyleClass().addAll(Styles.BUTTON_OUTLINED, Styles.SUCCESS);
+
+        TextArea txtBackupOutput = new TextArea();
+        txtBackupOutput.setEditable(false);
+        txtBackupOutput.setPrefRowCount(4);
+        txtBackupOutput.setWrapText(true);
+        txtBackupOutput.setPromptText("Backup status, SHA-256 hash, and manifest details will appear here...");
+
+        TextField txtVerifyPath = new TextField();
+        txtVerifyPath.setPromptText("Select .ohbak file to verify or restore...");
+        Button btnBrowseVerify = new Button("Browse...");
+        HBox verifyFileBox = new HBox(8, txtVerifyPath, btnBrowseVerify);
+        HBox.setHgrow(txtVerifyPath, Priority.ALWAYS);
+
+        Button btnVerify = new Button("🔍 Verify Cryptographic & DB Integrity");
+        btnVerify.getStyleClass().addAll(Styles.BUTTON_OUTLINED);
+
+        Label lblVerifyResult = new Label();
+        lblVerifyResult.setWrapText(true);
+
+        Button btnRestore = new Button("⏪ Safely Restore from Selected Backup");
+        btnRestore.getStyleClass().addAll(Styles.BUTTON_OUTLINED, Styles.DANGER);
+
+        cardLocal.getChildren().addAll(
+                lblLocalTitle,
+                new Label("Backup Note / Description:"), txtNote,
+                btnCreateBackup, txtBackupOutput,
+                new Separator(),
+                new Label("Archive File Verification & Restore:"), verifyFileBox,
+                new HBox(10, btnVerify, btnRestore),
+                lblVerifyResult
+        );
+        leftCol.getChildren().add(cardLocal);
+
+        // -------------------------------------------------------------
+        // RIGHT COLUMN: Google Drive Cloud API & Desktop Folder Sync
+        // -------------------------------------------------------------
+        VBox rightCol = new VBox(14);
+        rightCol.setPrefWidth(550);
+
+        VBox cardDrive = new VBox(10);
+        cardDrive.setStyle("-fx-background-color: -color-bg-subtle; -fx-padding: 14px; -fx-border-color: -color-border-subtle; -fx-border-radius: 8px; -fx-background-radius: 8px;");
+        Label lblDriveTitle = new Label("☁️ Google Drive Cloud Direct Synchronization");
+        lblDriveTitle.setFont(Font.font("System", FontWeight.BOLD, 13));
+
+        PasswordField txtGoogleToken = new PasswordField();
+        txtGoogleToken.setPromptText("Enter Google Drive Access Token / OAuth Bearer Token");
+
+        Button btnTestGoogle = new Button("🔑 Test Google Connection");
+        btnTestGoogle.getStyleClass().addAll(Styles.BUTTON_OUTLINED);
+        Label lblGoogleStatus = new Label("Status: Not connected");
+        lblGoogleStatus.setStyle("-fx-font-size: 0.85em; -fx-text-fill: -color-fg-muted;");
+
+        TextField txtGoogleFolderId = new TextField();
+        txtGoogleFolderId.setPromptText("Target Folder ID (optional, leave blank for My Drive root)");
+
+        Button btnUploadGoogle = new Button("☁️ Upload Backup & Verify Remote MD5 Checksum");
+        btnUploadGoogle.getStyleClass().addAll(Styles.BUTTON_OUTLINED, Styles.ACCENT);
+
+        Label lblUploadStatus = new Label();
+        lblUploadStatus.setWrapText(true);
+
+        // Desktop Folder Sync Card
+        Label lblDesktopTitle = new Label("🔄 Google Drive Desktop Local Folder Sync");
+        lblDesktopTitle.setFont(Font.font("System", FontWeight.BOLD, 13));
+
+        String defaultDrivePath = System.getProperty("user.home") + File.separator + "Google Drive" + File.separator + "OpenHomeo_Backups";
+        if (new File("G:\\My Drive").exists()) {
+            defaultDrivePath = "G:\\My Drive\\OpenHomeo_Backups";
+        }
+        TextField txtDesktopPath = new TextField(defaultDrivePath);
+
+        Button btnSyncDesktop = new Button("🔁 Sync Latest Backup to Local Google Drive Folder");
+        btnSyncDesktop.getStyleClass().addAll(Styles.BUTTON_OUTLINED);
+
+        Label lblDesktopSyncResult = new Label();
+        lblDesktopSyncResult.setWrapText(true);
+
+        cardDrive.getChildren().addAll(
+                lblDriveTitle,
+                new Label("Google Drive Bearer Token:"), txtGoogleToken,
+                new HBox(10, btnTestGoogle, lblGoogleStatus),
+                new Label("Google Drive Destination Folder ID:"), txtGoogleFolderId,
+                btnUploadGoogle, lblUploadStatus,
+                new Separator(),
+                lblDesktopTitle,
+                new Label("Local Google Drive Sync Directory:"), txtDesktopPath,
+                btnSyncDesktop, lblDesktopSyncResult
+        );
+        rightCol.getChildren().add(cardDrive);
+
+        columns.getChildren().addAll(leftCol, rightCol);
+
+        // -------------------------------------------------------------
+        // EVENT HANDLERS
+        // -------------------------------------------------------------
+        final File[] lastCreatedArchive = new File[1];
+
+        btnCreateBackup.setOnAction(e -> {
+            String note = txtNote.getText().trim();
+            btnCreateBackup.setDisable(true);
+            btnCreateBackup.setText("Creating Backup Archive...");
+
+            try {
+                ClinicBackupService.BackupResult res = backupService.createBackup(note);
+                if (res.success()) {
+                    lastCreatedArchive[0] = res.archiveFile();
+                    txtVerifyPath.setText(res.archiveFile().getAbsolutePath());
+                    txtBackupOutput.setText(String.format(
+                            "✓ Backup Created Successfully!\nFile: %s\nSize: %,d bytes\nSHA-256: %s\nMD5: %s\nDetails: %s",
+                            res.archiveFile().getName(), res.sizeBytes(), res.sha256Checksum(), res.md5Checksum(), res.message()
+                    ));
+                    showNotification("Backup saved: " + res.archiveFile().getName());
+                } else {
+                    txtBackupOutput.setText("Backup Failed: " + res.message());
+                    showError(res.message());
+                }
+            } catch (Exception ex) {
+                txtBackupOutput.setText("Error: " + ex.getMessage());
+                showError("Backup Error: " + ex.getMessage());
+            } finally {
+                btnCreateBackup.setDisable(false);
+                btnCreateBackup.setText("📁 Create Instant Backup (.ohbak)");
+            }
+        });
+
+        btnBrowseVerify.setOnAction(e -> {
+            FileChooser fc = new FileChooser();
+            fc.setTitle("Select OpenHomeo Clinic Backup Archive");
+            fc.getExtensionFilters().add(new FileChooser.ExtensionFilter("OpenHomeo Backup (*.ohbak, *.zip)", "*.ohbak", "*.zip"));
+            fc.setInitialDirectory(backupService.getDefaultBackupDir());
+            File selected = fc.showOpenDialog(getScene().getWindow());
+            if (selected != null) {
+                txtVerifyPath.setText(selected.getAbsolutePath());
+            }
+        });
+
+        btnVerify.setOnAction(e -> {
+            String path = txtVerifyPath.getText().trim();
+            if (path.isBlank()) {
+                showError("Please specify or browse for a backup file first.");
+                return;
+            }
+            File f = new File(path);
+            if (!f.exists()) {
+                showError("File does not exist: " + path);
+                return;
+            }
+
+            ClinicBackupService.VerificationResult res = backupService.verifyBackup(f);
+            if (res.valid()) {
+                lblVerifyResult.setStyle("-fx-text-fill: -color-success-fg; -fx-font-weight: bold;");
+                lblVerifyResult.setText("✓ Integrity Verified! " + res.manifestSummary() + "\n" + res.message());
+                showNotification("Backup verification passed for: " + f.getName());
+            } else {
+                lblVerifyResult.setStyle("-fx-text-fill: -color-danger-fg; -fx-font-weight: bold;");
+                lblVerifyResult.setText("✗ Verification Failed: " + res.message());
+            }
+        });
+
+        btnRestore.setOnAction(e -> {
+            String path = txtVerifyPath.getText().trim();
+            if (path.isBlank()) {
+                showError("Please select a verified backup file to restore.");
+                return;
+            }
+            File f = new File(path);
+            if (!f.exists()) {
+                showError("File does not exist: " + path);
+                return;
+            }
+
+            Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
+            confirm.setTitle("Confirm Clinic Database Restore");
+            confirm.setHeaderText("Restore clinic records from " + f.getName() + "?");
+            confirm.setContentText(
+                    "This action will safely replace user_clinic.db and the clinical photo vault with data from the backup archive.\n\n" +
+                    "• A pre-restore safety snapshot will be automatically created first.\n" +
+                    "• All current patient records, prescriptions, and stocks will be synchronized to this backup point.\n\n" +
+                    "Do you wish to proceed?"
+            );
+
+            Optional<ButtonType> result = confirm.showAndWait();
+            if (result.isPresent() && result.get() == ButtonType.OK) {
+                String restoreReport = backupService.restoreFromBackup(f);
+                if (restoreReport.startsWith("SUCCESS")) {
+                    lblVerifyResult.setStyle("-fx-text-fill: -color-success-fg; -fx-font-weight: bold;");
+                    lblVerifyResult.setText("✓ " + restoreReport);
+                    showNotification("Restore successful from: " + f.getName());
+                    refreshAllData();
+                } else {
+                    lblVerifyResult.setStyle("-fx-text-fill: -color-danger-fg; -fx-font-weight: bold;");
+                    lblVerifyResult.setText("✗ " + restoreReport);
+                    showError(restoreReport);
+                }
+            }
+        });
+
+        btnTestGoogle.setOnAction(e -> {
+            String token = txtGoogleToken.getText().trim();
+            if (token.isBlank()) {
+                showError("Please enter your Google Drive access token.");
+                return;
+            }
+            btnTestGoogle.setDisable(true);
+            btnTestGoogle.setText("Testing...");
+            try {
+                var res = backupService.testGoogleDriveConnection(token);
+                @SuppressWarnings("unchecked")
+                var user = (java.util.Map<String, Object>) res.get("user");
+                String name = user != null ? (String) user.get("displayName") : "Authenticated User";
+                String email = user != null ? (String) user.get("emailAddress") : "";
+                lblGoogleStatus.setStyle("-fx-text-fill: -color-success-fg; -fx-font-weight: bold;");
+                lblGoogleStatus.setText("✓ Connected: " + name + " (" + email + ")");
+                showNotification("Google Drive authenticated: " + email);
+            } catch (Exception ex) {
+                lblGoogleStatus.setStyle("-fx-text-fill: -color-danger-fg;");
+                lblGoogleStatus.setText("✗ Authentication Error: " + ex.getMessage());
+                showError("Google Drive Connection Error: " + ex.getMessage());
+            } finally {
+                btnTestGoogle.setDisable(false);
+                btnTestGoogle.setText("🔑 Test Google Connection");
+            }
+        });
+
+        btnUploadGoogle.setOnAction(e -> {
+            String token = txtGoogleToken.getText().trim();
+            if (token.isBlank()) {
+                showError("Please enter Google Drive Access Token first.");
+                return;
+            }
+            String path = txtVerifyPath.getText().trim();
+            File target = !path.isBlank() ? new File(path) : lastCreatedArchive[0];
+            if (target == null || !target.exists()) {
+                showError("No backup archive selected. Please create or browse for a backup (.ohbak) file first.");
+                return;
+            }
+
+            btnUploadGoogle.setDisable(true);
+            btnUploadGoogle.setText("Uploading & Verifying on Google Drive...");
+            lblUploadStatus.setText("Streaming " + target.getName() + " to Google Drive...");
+
+            String folderId = txtGoogleFolderId.getText().trim();
+            try {
+                ClinicBackupService.DriveUploadResult res = backupService.uploadToGoogleDrive(target, token, folderId);
+                if (res.success()) {
+                    lblUploadStatus.setStyle("-fx-text-fill: -color-success-fg; -fx-font-weight: bold;");
+                    lblUploadStatus.setText(res.message() + "\nRemote File ID: " + res.fileId() + " (Size: " + res.remoteSizeBytes() + " bytes)");
+                    showNotification("Backup uploaded to Google Drive: " + target.getName());
+                } else {
+                    lblUploadStatus.setStyle("-fx-text-fill: -color-danger-fg;");
+                    lblUploadStatus.setText("Upload Failed: " + res.message());
+                    showError(res.message());
+                }
+            } catch (Exception ex) {
+                lblUploadStatus.setStyle("-fx-text-fill: -color-danger-fg;");
+                lblUploadStatus.setText("Upload Error: " + ex.getMessage());
+                showError("Google Drive Upload Error: " + ex.getMessage());
+            } finally {
+                btnUploadGoogle.setDisable(false);
+                btnUploadGoogle.setText("☁️ Upload Backup & Verify Remote MD5 Checksum");
+            }
+        });
+
+        btnSyncDesktop.setOnAction(e -> {
+            String destPath = txtDesktopPath.getText().trim();
+            if (destPath.isBlank()) {
+                showError("Please enter a Google Drive desktop sync folder path.");
+                return;
+            }
+            String path = txtVerifyPath.getText().trim();
+            File target = !path.isBlank() ? new File(path) : lastCreatedArchive[0];
+            if (target == null || !target.exists()) {
+                showError("No backup archive selected. Please create or browse for a backup file first.");
+                return;
+            }
+
+            boolean synced = backupService.syncToLocalFolder(target, new File(destPath));
+            if (synced) {
+                lblDesktopSyncResult.setStyle("-fx-text-fill: -color-success-fg; -fx-font-weight: bold;");
+                lblDesktopSyncResult.setText("✓ Synced cleanly to: " + destPath + File.separator + target.getName() + " (SHA-256 byte-matched)");
+                showNotification("Desktop sync successful: " + target.getName());
+            } else {
+                lblDesktopSyncResult.setStyle("-fx-text-fill: -color-danger-fg;");
+                lblDesktopSyncResult.setText("✗ Failed to sync to destination folder.");
+                showError("Failed to sync to folder: " + destPath);
+            }
+        });
+
+        content.getChildren().addAll(secTitle, infoBadge, columns);
         pane.setCenter(new ScrollPane(content));
         return pane;
     }
