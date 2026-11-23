@@ -3,7 +3,12 @@ package org.openhomeo.importer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
@@ -125,7 +130,7 @@ public class KnowledgeBaseSeeder {
     }
 
     private static void seedRemedies(Connection conn) throws SQLException {
-        String sql = "INSERT INTO remedies VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        String sql = "INSERT OR IGNORE INTO remedies VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             // =========================================================================
             // CLASSICAL & INTERNATIONAL POLYCHRESTS
@@ -291,6 +296,34 @@ public class KnowledgeBaseSeeder {
             insertRemedy(ps, "term-b", "Term-b.", "Terminalia belerica", "Bahera / Belleric myrobalan", "Plant", "Combretaceae", null, null, "PSORA", "CHILLY", "THIRSTLESS");
             insertRemedy(ps, "tylop-i", "Tylop.", "Tylophora indica", "Antamul / Indian ipecac", "Plant", "Asclepiadaceae", null, null, "TUBERCULAR", "CHILLY", "THIRSTLESS");
             insertRemedy(ps, "wright-t", "Wrigh.", "Wrightia tinctoria", "Indrajau / Sweet indrajao", "Plant", "Apocynaceae", null, null, "SYCOSIS", "HOT", "THIRSTLESS");
+
+            // Ingest all additional remedies from exhaustive master dataset
+            InputStream tempIn = KnowledgeBaseSeeder.class.getResourceAsStream("/data/master_medicines_exhaustive.tsv");
+            if (tempIn == null) {
+                File f = new File("../../openhomeo-core/src/main/resources/data/master_medicines_exhaustive.tsv");
+                if (!f.exists()) f = new File("openhomeo-core/src/main/resources/data/master_medicines_exhaustive.tsv");
+                if (f.exists()) {
+                    try { tempIn = new FileInputStream(f); } catch (Exception ignored) {}
+                }
+            }
+            if (tempIn != null) {
+                try (InputStream in = tempIn; BufferedReader reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
+                    String line;
+                    boolean first = true;
+                    while ((line = reader.readLine()) != null) {
+                        if (first) { first = false; continue; }
+                        String[] p = line.split("\t", -1);
+                        if (p.length >= 3) {
+                            String remId = p[0].trim();
+                            String remName = p[1].trim();
+                            String commName = p[2].trim();
+                            insertRemedy(ps, remId, remId, remName, commName, "General", "Homeopathic", null, null, "PSORA", "AMBITHERMAL", "THIRSTLESS");
+                        }
+                    }
+                } catch (Exception ex) {
+                    log.warn("Could not import additional remedies from TSV: {}", ex.getMessage());
+                }
+            }
 
             ps.executeBatch();
         }

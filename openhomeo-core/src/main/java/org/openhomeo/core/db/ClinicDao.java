@@ -1267,7 +1267,7 @@ public class ClinicDao {
             SELECT * FROM medicine_constituents
             WHERE remedy_id LIKE ? OR remedy_name LIKE ? OR common_and_indian_name LIKE ?
                OR active_constituents LIKE ? OR pharmacological_action LIKE ?
-            ORDER BY remedy_name ASC LIMIT 150;
+            ORDER BY remedy_name ASC LIMIT 1000;
         """;
         try (Connection conn = dbManager.getClinicConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {

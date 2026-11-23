@@ -3,6 +3,8 @@ package org.openhomeo.gui.view;
 import atlantafx.base.theme.PrimerLight;
 import javafx.application.Platform;
 import javafx.scene.Scene;
+import javafx.scene.control.Tab;
+import javafx.scene.control.TabPane;
 import javafx.stage.Stage;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -11,6 +13,7 @@ import org.openhomeo.core.db.ClinicDao;
 import org.openhomeo.core.db.DatabaseManager;
 import org.openhomeo.core.db.MasterKnowledgeDao;
 import org.openhomeo.core.image.ImageVaultService;
+import org.openhomeo.core.model.MedicineConstituent;
 import org.openhomeo.core.model.Rubric;
 import org.openhomeo.core.model.User;
 import org.openhomeo.core.repertory.RepertorizationEngine;
@@ -19,6 +22,7 @@ import org.openhomeo.core.security.SecurityService;
 
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -145,6 +149,16 @@ public class GuiComponentTest {
                 PharmacyDispensaryView pharmacyView = new PharmacyDispensaryView(clinicDao, masterDao, securityService);
                 assertNotNull(pharmacyView);
                 assertNotNull(pharmacyView.getCenter());
+                assertTrue(pharmacyView.getCenter() instanceof TabPane);
+                TabPane subTabs = (TabPane) pharmacyView.getCenter();
+                assertEquals(5, subTabs.getTabs().size(), "Should have exactly 5 tabs with bogus batch checklist tab removed");
+                for (Tab t : subTabs.getTabs()) {
+                    assertFalse(t.getText().contains("Checklist"), "Checklist tab must not be present: " + t.getText());
+                }
+
+                // Verify exhaustive database size
+                List<MedicineConstituent> allConstituents = clinicDao.getAllMedicineConstituents();
+                assertTrue(allConstituents.size() >= 350, "Exhaustive homeopathic superset must contain >350 remedies, got: " + allConstituents.size());
 
                 // 3. Instantiate CaseTakingView
                 SymptomClipboard clipboard = new SymptomClipboard();

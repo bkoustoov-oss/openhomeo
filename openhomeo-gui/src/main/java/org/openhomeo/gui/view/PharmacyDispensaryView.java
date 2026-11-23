@@ -62,13 +62,12 @@ public class PharmacyDispensaryView extends BorderPane {
         subTabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
 
         Tab tabStock = new Tab("📦 Live Stock Register", createStockRegisterPane());
-        Tab tabChecklist = new Tab("⚡ Multi-Medicine Batch Checklist Entry", createChecklistBatchPane());
         Tab tabMasterVsStock = new Tab("📖 Master Medicine Directory & Pharmacology", createMasterVsStockPane());
         Tab tabOrders = new Tab("📋 Doctor Orders & Internal Consultation", createOrdersPane());
         Tab tabReorder = new Tab("🔄 Volume Reorder & Approvals", createReorderPane());
         Tab tabBilling = new Tab("💳 Dispensary Billing & Invoicing", createBillingPane());
 
-        subTabs.getTabs().addAll(tabStock, tabChecklist, tabMasterVsStock, tabOrders, tabReorder, tabBilling);
+        subTabs.getTabs().addAll(tabStock, tabMasterVsStock, tabOrders, tabReorder, tabBilling);
         setCenter(subTabs);
 
         refreshAllData();
@@ -335,198 +334,7 @@ public class PharmacyDispensaryView extends BorderPane {
     }
 
     // =========================================================================
-    // TAB 2: MULTI-MEDICINE CHECKLIST BATCH ENTRY
-    // =========================================================================
-
-    public static class ChecklistRemedyItem {
-        private final SimpleStringProperty name = new SimpleStringProperty();
-        private final SimpleStringProperty code = new SimpleStringProperty();
-        private final SimpleStringProperty commonName = new SimpleStringProperty();
-        private boolean selected = false;
-
-        public ChecklistRemedyItem(String code, String name, String commonName) {
-            this.code.set(code);
-            this.name.set(name);
-            this.commonName.set(commonName != null ? commonName : "");
-        }
-        public boolean isSelected() { return selected; }
-        public void setSelected(boolean s) { this.selected = s; }
-        public String getName() { return name.get(); }
-        public String getCode() { return code.get(); }
-        public String getCommonName() { return commonName.get(); }
-    }
-
-    private Node createChecklistBatchPane() {
-        VBox vbox = new VBox(12);
-        vbox.setPadding(new Insets(14));
-
-        Label header = new Label("Multi-Medicine Checklist Quick Batch Entry");
-        header.setFont(Font.font("System", FontWeight.BOLD, 15));
-
-        Label desc = new Label("Select multiple remedies from the checklist, configure uniform batch parameters (Company, Form, Potency, Quantity), and batch-add directly into the live stock register in one click.");
-        desc.getStyleClass().add(Styles.TEXT_MUTED);
-
-        // Batch Parameters Box
-        GridPane paramGrid = new GridPane();
-        paramGrid.setHgap(12); paramGrid.setVgap(8);
-        paramGrid.setPadding(new Insets(10));
-        paramGrid.setStyle("-fx-background-color: #f8fafc; -fx-border-color: #cbd5e1; -fx-border-radius: 8px;");
-
-        ComboBox<String> compBox = new ComboBox<>();
-        compBox.getItems().addAll("SBL Pvt. Ltd.", "Dr. Reckeweg (Germany)", "Schwabe India (WSI)", "Bakson", "Wheezal", "Medisynth", "In-House Dispensary");
-        compBox.setValue("SBL Pvt. Ltd.");
-
-        ComboBox<String> formBox = new ComboBox<>();
-        formBox.getItems().addAll("Liquid Dilution 30ml", "Liquid Dilution 100ml", "Mother Tincture Q 30ml",
-                "Mother Tincture Q 100ml", "Globules No. 30 (1/2 oz)", "Globules No. 40 (1 oz)", "Biochemic Tablets (25g)", "Ointment/Cream 25g");
-        formBox.setValue("Liquid Dilution 30ml");
-
-        ComboBox<String> potencyBox = new ComboBox<>();
-        potencyBox.getItems().addAll("Q", "6X", "12X", "30C", "200C", "1M", "10M", "50M", "0/1 LM", "0/3 LM");
-        potencyBox.setValue("200C");
-
-        Spinner<Integer> qtySpinner = new Spinner<>(1, 500, 10);
-        TextField priceField = new TextField("120.00"); priceField.setPrefWidth(90);
-        TextField rackField = new TextField("Rack B-Dispensary"); rackField.setPrefWidth(140);
-
-        paramGrid.add(new Label("Target Company:"), 0, 0); paramGrid.add(compBox, 1, 0);
-        paramGrid.add(new Label("Dosage Form:"), 2, 0); paramGrid.add(formBox, 3, 0);
-        paramGrid.add(new Label("Potency:"), 4, 0); paramGrid.add(potencyBox, 5, 0);
-        paramGrid.add(new Label("Quantity per item:"), 0, 1); paramGrid.add(qtySpinner, 1, 1);
-        paramGrid.add(new Label("MRP Price (₹):"), 2, 1); paramGrid.add(priceField, 3, 1);
-        paramGrid.add(new Label("Rack Location:"), 4, 1); paramGrid.add(rackField, 5, 1);
-
-        // Checklist Table
-        ObservableList<ChecklistRemedyItem> checklistItems = FXCollections.observableArrayList();
-        try {
-            List<Remedy> allRemedies = masterDao.getAllRemedies();
-            for (Remedy r : allRemedies) {
-                checklistItems.add(new ChecklistRemedyItem(r.id(), r.fullName(), r.commonName()));
-            }
-        } catch (Exception ex) {
-            log.error("Failed to load remedies for checklist", ex);
-        }
-
-        TableView<ChecklistRemedyItem> checklistTable = new TableView<>(checklistItems);
-        checklistTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
-
-        TableColumn<ChecklistRemedyItem, Boolean> colSel = new TableColumn<>("Select");
-        colSel.setPrefWidth(60);
-        colSel.setCellFactory(tc -> new TableCell<>() {
-            private final CheckBox cb = new CheckBox();
-            {
-                cb.setOnAction(e -> {
-                    ChecklistRemedyItem item = getTableView().getItems().get(getIndex());
-                    item.setSelected(cb.isSelected());
-                });
-            }
-            @Override
-            protected void updateItem(Boolean item, boolean empty) {
-                super.updateItem(item, empty);
-                if (empty || getIndex() >= getTableView().getItems().size()) {
-                    setGraphic(null);
-                } else {
-                    cb.setSelected(getTableView().getItems().get(getIndex()).isSelected());
-                    setGraphic(cb);
-                }
-            }
-        });
-
-        TableColumn<ChecklistRemedyItem, String> colCode = new TableColumn<>("Code");
-        colCode.setCellValueFactory(d -> d.getValue().code);
-        colCode.setPrefWidth(90);
-
-        TableColumn<ChecklistRemedyItem, String> colName = new TableColumn<>("Remedy Botanical / Chemical Name");
-        colName.setCellValueFactory(d -> d.getValue().name);
-
-        TableColumn<ChecklistRemedyItem, String> colCommon = new TableColumn<>("Common / Indian Name");
-        colCommon.setCellValueFactory(d -> d.getValue().commonName);
-
-        checklistTable.getColumns().addAll(colSel, colCode, colName, colCommon);
-        VBox.setVgrow(checklistTable, Priority.ALWAYS);
-
-        // Selection buttons
-        HBox selBtns = new HBox(10);
-        selBtns.setAlignment(Pos.CENTER_LEFT);
-
-        Button selectAllBtn = new Button("☑️ Select All");
-        selectAllBtn.setOnAction(e -> {
-            checklistItems.forEach(it -> it.setSelected(true));
-            checklistTable.refresh();
-        });
-
-        Button deselectAllBtn = new Button("⬜ Deselect All");
-        deselectAllBtn.setOnAction(e -> {
-            checklistItems.forEach(it -> it.setSelected(false));
-            checklistTable.refresh();
-        });
-
-        TextField filterBox = new TextField();
-        filterBox.setPromptText("Filter remedy checklist...");
-        filterBox.textProperty().addListener((obs, oldV, newV) -> {
-            if (newV == null || newV.isBlank()) {
-                checklistTable.setItems(checklistItems);
-            } else {
-                String f = newV.toLowerCase().trim();
-                checklistTable.setItems(checklistItems.filtered(it ->
-                        it.getName().toLowerCase().contains(f) ||
-                        it.getCode().toLowerCase().contains(f) ||
-                        it.getCommonName().toLowerCase().contains(f)
-                ));
-            }
-        });
-
-        Button executeBatchBtn = new Button("⚡ Batch Add Checked Medicines to Live Stock");
-        executeBatchBtn.getStyleClass().addAll(Styles.SUCCESS, Styles.LARGE);
-        executeBatchBtn.setOnAction(e -> {
-            List<MedicineInventoryItem> toInsert = new ArrayList<>();
-            double pr = 120.0;
-            try { pr = Double.parseDouble(priceField.getText().trim()); } catch (Exception ignored) {}
-
-            for (ChecklistRemedyItem ci : checklistItems) {
-                if (ci.isSelected()) {
-                    toInsert.add(new MedicineInventoryItem(
-                            UUID.randomUUID().toString(),
-                            ci.getCode(),
-                            ci.getName(),
-                            compBox.getValue(),
-                            formBox.getValue(),
-                            potencyBox.getValue(),
-                            "BATCH-" + (System.currentTimeMillis() % 10000),
-                            LocalDate.now().plusYears(4),
-                            qtySpinner.getValue(),
-                            5,
-                            pr,
-                            rackField.getText().trim(),
-                            Instant.now()
-                    ));
-                }
-            }
-
-            if (toInsert.isEmpty()) {
-                showAlert("No Remedies Checked", "Please check at least one remedy from the checklist.");
-                return;
-            }
-
-            try {
-                clinicDao.batchInsertInventory(toInsert);
-                refreshAllData();
-                showAlert("Batch Addition Complete", "Successfully added " + toInsert.size() + " medicines to the Stock Register!");
-                statusLabel.setText("Batch added " + toInsert.size() + " items.");
-            } catch (Exception ex) {
-                log.error("Batch insertion failed", ex);
-                showAlert("Database Error", "Failed to batch insert: " + ex.getMessage());
-            }
-        });
-
-        selBtns.getChildren().addAll(selectAllBtn, deselectAllBtn, new Label("Search:"), filterBox, executeBatchBtn);
-
-        vbox.getChildren().addAll(header, desc, paramGrid, selBtns, checklistTable);
-        return vbox;
-    }
-
-    // =========================================================================
-    // TAB 3: DOCTOR ORDERS & INTERNAL CONSULTATIONS
+    // TAB 2: DOCTOR ORDERS & INTERNAL CONSULTATIONS
     // =========================================================================
 
     private Node createOrdersPane() {
@@ -994,17 +802,25 @@ public class PharmacyDispensaryView extends BorderPane {
         masterConstituentsTable = new TableView<>(masterConstituentsList);
         masterConstituentsTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_ALL_COLUMNS);
 
+        TableColumn<MedicineConstituent, String> colCode = new TableColumn<>("Remedy Code");
+        colCode.setCellValueFactory(mc -> new SimpleStringProperty(mc.getValue().remedyId()));
+        colCode.setPrefWidth(90);
+
         TableColumn<MedicineConstituent, String> colLatin = new TableColumn<>("Latin Binomial Name");
         colLatin.setCellValueFactory(mc -> new SimpleStringProperty(mc.getValue().remedyName()));
+        colLatin.setPrefWidth(200);
 
         TableColumn<MedicineConstituent, String> colCommon = new TableColumn<>("Common / Indian Name");
         colCommon.setCellValueFactory(mc -> new SimpleStringProperty(mc.getValue().commonAndIndianName()));
+        colCommon.setPrefWidth(220);
 
         TableColumn<MedicineConstituent, String> colStock = new TableColumn<>("Dispensary Stock Presence");
         colStock.setCellValueFactory(mc -> {
             String remId = mc.getValue().remedyId();
+            String remName = mc.getValue().remedyName();
             int totalUnits = inventoryList.stream()
-                    .filter(i -> i.remedyId() != null && i.remedyId().equalsIgnoreCase(remId))
+                    .filter(i -> (i.remedyId() != null && i.remedyId().equalsIgnoreCase(remId)) ||
+                                 (i.medicineName() != null && (i.medicineName().equalsIgnoreCase(remName) || i.medicineName().equalsIgnoreCase(remId))))
                     .mapToInt(MedicineInventoryItem::currentStockQty)
                     .sum();
             if (totalUnits > 0) {
@@ -1013,8 +829,9 @@ public class PharmacyDispensaryView extends BorderPane {
                 return new SimpleStringProperty("⚠ NOT IN STOCK (0)");
             }
         });
+        colStock.setPrefWidth(160);
 
-        masterConstituentsTable.getColumns().addAll(List.of(colLatin, colCommon, colStock));
+        masterConstituentsTable.getColumns().addAll(List.of(colCode, colLatin, colCommon, colStock));
 
         // Right Detail Card
         ScrollPane detailScroll = new ScrollPane();
@@ -1026,6 +843,10 @@ public class PharmacyDispensaryView extends BorderPane {
         Label lblTitle = new Label("Select a medicine on the left to inspect internal constituents...");
         lblTitle.setFont(Font.font("Segoe UI", FontWeight.BOLD, 16));
         lblTitle.getStyleClass().add(Styles.ACCENT);
+
+        Label lblCode = new Label("");
+        lblCode.setFont(Font.font("Segoe UI", FontWeight.BOLD, 12));
+        lblCode.getStyleClass().addAll(Styles.TEXT_SMALL, Styles.ACCENT);
 
         Label lblIndian = new Label("");
         lblIndian.setFont(Font.font("Segoe UI", FontWeight.SEMI_BOLD, 13));
@@ -1042,7 +863,7 @@ public class PharmacyDispensaryView extends BorderPane {
         btnProposeRemark.setDisable(true);
 
         detailCard.getChildren().addAll(
-                lblTitle, lblIndian,
+                lblTitle, lblCode, lblIndian,
                 new Separator(),
                 new Label("🔬 Active Phytochemical, Biochemical & Alkaloid/Glycoside Constituents:"), txtActive,
                 new Label("⚙️ Scientific Mode of Action (Cellular & Pharmacological):"), txtPharm,
@@ -1057,6 +878,7 @@ public class PharmacyDispensaryView extends BorderPane {
         masterConstituentsTable.getSelectionModel().selectedItemProperty().addListener((obs, oldVal, mc) -> {
             if (mc != null) {
                 lblTitle.setText(mc.remedyName());
+                lblCode.setText("Remedy Code: [" + mc.remedyId() + "]");
                 lblIndian.setText("Common / Indian Name: " + mc.commonAndIndianName());
                 txtActive.setText(mc.activeConstituents());
                 txtPharm.setText(mc.pharmacologicalAction());
@@ -1067,6 +889,7 @@ public class PharmacyDispensaryView extends BorderPane {
                         : "No annexed remarks yet. Doctors or pharmacists may submit proposed observations below.");
                 btnProposeRemark.setDisable(false);
             } else {
+                lblCode.setText("");
                 btnProposeRemark.setDisable(true);
             }
         });
