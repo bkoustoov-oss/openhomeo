@@ -371,6 +371,89 @@ public class DatabaseManager {
                 );
             """);
 
+            // Pharmacists & Dispensary Staff Registry
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS pharmacists (
+                    id TEXT PRIMARY KEY,
+                    full_name TEXT NOT NULL,
+                    registration_no TEXT,
+                    qualification TEXT,
+                    dispensary_name TEXT,
+                    address TEXT,
+                    phone TEXT,
+                    email TEXT,
+                    is_active BOOLEAN DEFAULT TRUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """);
+
+            // Master Medicine Constituents (Phytochemical, Biochemical & Pharmacological Action)
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS medicine_constituents (
+                    remedy_id TEXT PRIMARY KEY,
+                    remedy_name TEXT NOT NULL,
+                    common_and_indian_name TEXT,
+                    active_constituents TEXT NOT NULL,
+                    pharmacological_action TEXT NOT NULL,
+                    organ_affinity TEXT,
+                    toxicology_and_antidotes TEXT,
+                    annexed_remarks TEXT DEFAULT '',
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """);
+            stmt.execute("CREATE INDEX IF NOT EXISTS idx_mc_name ON medicine_constituents(remedy_name);");
+
+            // Doctor/Pharmacist Remarks on Constituents (Awaiting Admin Approval)
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS medicine_constituent_remarks (
+                    id TEXT PRIMARY KEY,
+                    remedy_id TEXT NOT NULL,
+                    submitted_by_user_id TEXT NOT NULL,
+                    submitted_by_user_name TEXT NOT NULL,
+                    proposed_remark TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    reviewed_by_admin_id TEXT,
+                    submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    reviewed_at TIMESTAMP
+                );
+            """);
+            stmt.execute("CREATE INDEX IF NOT EXISTS idx_mcr_rem ON medicine_constituent_remarks(remedy_id);");
+            stmt.execute("CREATE INDEX IF NOT EXISTS idx_mcr_stat ON medicine_constituent_remarks(status);");
+
+            // Secret "Report of Faith" (Clinical Discrepancy & AI Audit Dossier for Admin's Eye Only)
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS admin_faith_dossier (
+                    id TEXT PRIMARY KEY,
+                    consultation_id TEXT,
+                    patient_id TEXT NOT NULL,
+                    patient_name TEXT NOT NULL,
+                    doctor_id TEXT,
+                    doctor_name TEXT,
+                    remedy_id TEXT NOT NULL,
+                    remedy_name TEXT NOT NULL,
+                    potency TEXT NOT NULL,
+                    repetition_frequency TEXT,
+                    violated_rule TEXT NOT NULL,
+                    rule_severity TEXT NOT NULL,
+                    doctor_explanation TEXT,
+                    ai_risk_assessment TEXT NOT NULL,
+                    predicted_complications TEXT,
+                    is_audited BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """);
+            stmt.execute("CREATE INDEX IF NOT EXISTS idx_faith_doc ON admin_faith_dossier(doctor_id);");
+            stmt.execute("CREATE INDEX IF NOT EXISTS idx_faith_audit ON admin_faith_dossier(is_audited);");
+
+            // Network and Remote Server Configuration
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS network_settings (
+                    id TEXT PRIMARY KEY,
+                    settings_json TEXT NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """);
+
             // Seed default doctor if none exists
             try (ResultSet rs = stmt.executeQuery("SELECT count(*) FROM doctors")) {
                 if (rs.next() && rs.getInt(1) == 0) {
@@ -381,6 +464,18 @@ public class DatabaseManager {
                                 'Consulting Physician & Classical Prescriber', TRUE);
                     """);
                     log.info("Initialized default consulting doctor: Dr. S. K. Mukherjee");
+                }
+            }
+
+            // Seed default pharmacist if none exists
+            try (ResultSet rs = stmt.executeQuery("SELECT count(*) FROM pharmacists")) {
+                if (rs.next() && rs.getInt(1) == 0) {
+                    stmt.execute("""
+                        INSERT INTO pharmacists (id, full_name, registration_no, qualification, dispensary_name, address, phone, email, is_active)
+                        VALUES ('pharma-default', 'A. K. Sharma', 'WBCP-8921 / PH-2016', 'D.Pharm (Homoeopathy)', 'Central Clinic Dispensary',
+                                '12/A College Street, Kolkata, West Bengal - 700073', '+91 98311 54321', 'dispensary@openhomeo.org', TRUE);
+                    """);
+                    log.info("Initialized default dispensing pharmacist: A. K. Sharma");
                 }
             }
 
@@ -405,6 +500,9 @@ public class DatabaseManager {
 
             // Seed inventory
             PharmacyInventorySeeder.seedInventoryIfEmpty(conn);
+
+            // Seed medicine constituents (phytochemicals, biochemistry, pharmacology)
+            MedicineConstituentSeeder.seedConstituentsIfEmpty(conn);
 
             log.info("Clinic database schema initialized successfully.");
         }

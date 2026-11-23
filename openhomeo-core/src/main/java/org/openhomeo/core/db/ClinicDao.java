@@ -131,6 +131,110 @@ public class ClinicDao {
     }
 
     // =========================================================================
+    // PHARMACISTS & DISPENSARY STAFF
+    // =========================================================================
+
+    public Pharmacist savePharmacist(Pharmacist p) throws SQLException {
+        String sql = """
+            INSERT INTO pharmacists (id, full_name, registration_no, qualification, dispensary_name, address, phone, email, is_active, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        """;
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, p.id());
+            ps.setString(2, p.fullName());
+            ps.setString(3, p.registrationNo());
+            ps.setString(4, p.qualification());
+            ps.setString(5, p.dispensaryName());
+            ps.setString(6, p.address());
+            ps.setString(7, p.phone());
+            ps.setString(8, p.email());
+            ps.setBoolean(9, p.isActive());
+            ps.setTimestamp(10, Timestamp.from(p.createdAt()));
+            ps.executeUpdate();
+        }
+        return p;
+    }
+
+    public void updatePharmacist(Pharmacist p) throws SQLException {
+        String sql = """
+            UPDATE pharmacists
+            SET full_name = ?, registration_no = ?, qualification = ?, dispensary_name = ?,
+                address = ?, phone = ?, email = ?, is_active = ?
+            WHERE id = ?;
+        """;
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, p.fullName());
+            ps.setString(2, p.registrationNo());
+            ps.setString(3, p.qualification());
+            ps.setString(4, p.dispensaryName());
+            ps.setString(5, p.address());
+            ps.setString(6, p.phone());
+            ps.setString(7, p.email());
+            ps.setBoolean(8, p.isActive());
+            ps.setString(9, p.id());
+            ps.executeUpdate();
+        }
+    }
+
+    public Optional<Pharmacist> getPharmacistById(String id) throws SQLException {
+        if (id == null) return Optional.empty();
+        String sql = "SELECT * FROM pharmacists WHERE id = ?";
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, id);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return Optional.of(mapPharmacist(rs));
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    public List<Pharmacist> getAllPharmacists() throws SQLException {
+        List<Pharmacist> list = new ArrayList<>();
+        String sql = "SELECT * FROM pharmacists ORDER BY is_active DESC, full_name ASC";
+        try (Connection conn = dbManager.getClinicConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            while (rs.next()) {
+                list.add(mapPharmacist(rs));
+            }
+        }
+        return list;
+    }
+
+    public List<Pharmacist> getActivePharmacists() throws SQLException {
+        List<Pharmacist> list = new ArrayList<>();
+        String sql = "SELECT * FROM pharmacists WHERE is_active = TRUE ORDER BY full_name ASC";
+        try (Connection conn = dbManager.getClinicConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            while (rs.next()) {
+                list.add(mapPharmacist(rs));
+            }
+        }
+        return list;
+    }
+
+    private Pharmacist mapPharmacist(ResultSet rs) throws SQLException {
+        return new Pharmacist(
+                rs.getString("id"),
+                rs.getString("full_name"),
+                rs.getString("registration_no"),
+                rs.getString("qualification"),
+                rs.getString("dispensary_name"),
+                rs.getString("address"),
+                rs.getString("phone"),
+                rs.getString("email"),
+                rs.getBoolean("is_active"),
+                rs.getTimestamp("created_at").toInstant()
+        );
+    }
+
+    // =========================================================================
     // PATIENTS
     // =========================================================================
 
@@ -185,6 +289,76 @@ public class ClinicDao {
                 ps.setString(2, like);
                 ps.setString(3, like);
                 ps.setString(4, like);
+            }
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    list.add(mapPatient(rs));
+                }
+            }
+        }
+        return list;
+    }
+
+    public List<Patient> searchPatientsFiltered(String searchTerm, String category, String gender,
+                                                String ageGroup, String constitution, String miasm) throws SQLException {
+        List<Patient> list = new ArrayList<>();
+        StringBuilder sql = new StringBuilder("SELECT * FROM patients WHERE 1=1");
+        List<Object> params = new ArrayList<>();
+
+        if (searchTerm != null && !searchTerm.isBlank()) {
+            sql.append(" AND (first_name LIKE ? OR last_name LIKE ? OR case_number LIKE ? OR phone LIKE ?)");
+            String like = "%" + searchTerm.trim() + "%";
+            params.add(like);
+            params.add(like);
+            params.add(like);
+            params.add(like);
+        }
+
+        if (category != null && !category.isBlank() && !category.equalsIgnoreCase("ALL")) {
+            sql.append(" AND occupation LIKE ?");
+            params.add("%" + category.trim() + "%");
+        }
+
+        if (gender != null && !gender.isBlank() && !gender.equalsIgnoreCase("ALL")) {
+            sql.append(" AND LOWER(gender) = LOWER(?)");
+            params.add(gender.trim());
+        }
+
+        if (ageGroup != null && !ageGroup.isBlank() && !ageGroup.equalsIgnoreCase("ALL")) {
+            LocalDate today = LocalDate.now();
+            if (ageGroup.toUpperCase().contains("PEDIATRIC") || ageGroup.contains("< 12")) {
+                sql.append(" AND dob >= ?");
+                params.add(Date.valueOf(today.minusYears(12)));
+            } else if (ageGroup.toUpperCase().contains("ADOLESCENT") || ageGroup.contains("12-18")) {
+                sql.append(" AND dob < ? AND dob >= ?");
+                params.add(Date.valueOf(today.minusYears(12)));
+                params.add(Date.valueOf(today.minusYears(18)));
+            } else if (ageGroup.toUpperCase().contains("ADULT") || ageGroup.contains("18-60")) {
+                sql.append(" AND dob < ? AND dob >= ?");
+                params.add(Date.valueOf(today.minusYears(18)));
+                params.add(Date.valueOf(today.minusYears(60)));
+            } else if (ageGroup.toUpperCase().contains("GERIATRIC") || ageGroup.contains("> 60")) {
+                sql.append(" AND dob < ?");
+                params.add(Date.valueOf(today.minusYears(60)));
+            }
+        }
+
+        if (constitution != null && !constitution.isBlank() && !constitution.equalsIgnoreCase("ALL")) {
+            sql.append(" AND constitutional_type LIKE ?");
+            params.add("%" + constitution.trim() + "%");
+        }
+
+        if (miasm != null && !miasm.isBlank() && !miasm.equalsIgnoreCase("ALL")) {
+            sql.append(" AND miasmatic_background LIKE ?");
+            params.add("%" + miasm.trim() + "%");
+        }
+
+        sql.append(" ORDER BY last_name ASC, first_name ASC LIMIT 200;");
+
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql.toString())) {
+            for (int i = 0; i < params.size(); i++) {
+                ps.setObject(i + 1, params.get(i));
             }
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
@@ -418,6 +592,43 @@ public class ClinicDao {
             }
         }
         return list;
+    }
+
+    public User createUser(String username, String password, String fullName, User.UserRole role) throws SQLException {
+        String id = "usr-" + UUID.randomUUID().toString().substring(0, 8);
+        Instant now = Instant.now();
+        User u = new User(id, username.trim().toLowerCase(), password, fullName.trim(), role, now);
+        createUser(u);
+        return u;
+    }
+
+    public void updateUserRole(String userId, User.UserRole newRole) throws SQLException {
+        String sql = "UPDATE users SET role = ? WHERE id = ?";
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, newRole.name());
+            ps.setString(2, userId);
+            ps.executeUpdate();
+        }
+    }
+
+    public void updateUserPassword(String userId, String newPassword) throws SQLException {
+        String sql = "UPDATE users SET password_hash = ? WHERE id = ?";
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, newPassword);
+            ps.setString(2, userId);
+            ps.executeUpdate();
+        }
+    }
+
+    public void deleteUser(String userId) throws SQLException {
+        String sql = "DELETE FROM users WHERE id = ?";
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, userId);
+            ps.executeUpdate();
+        }
     }
 
     // =========================================================================
@@ -1015,6 +1226,385 @@ public class ClinicDao {
                 rs.getTimestamp("order_date").toInstant(),
                 compDate != null ? compDate.toInstant() : null,
                 items
+        );
+    }
+
+    // =========================================================================
+    // MEDICINE CONSTITUENTS & CLINICAL REMARKS (PHARMACOLOGY & BIOCHEMISTRY)
+    // =========================================================================
+
+    public Optional<MedicineConstituent> getMedicineConstituent(String remedyId) throws SQLException {
+        if (remedyId == null || remedyId.isBlank()) return Optional.empty();
+        String sql = "SELECT * FROM medicine_constituents WHERE LOWER(remedy_id) = LOWER(?)";
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, remedyId.trim());
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return Optional.of(mapMedicineConstituent(rs));
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    public List<MedicineConstituent> getAllMedicineConstituents() throws SQLException {
+        List<MedicineConstituent> list = new ArrayList<>();
+        String sql = "SELECT * FROM medicine_constituents ORDER BY remedy_name ASC";
+        try (Connection conn = dbManager.getClinicConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            while (rs.next()) {
+                list.add(mapMedicineConstituent(rs));
+            }
+        }
+        return list;
+    }
+
+    public List<MedicineConstituent> searchMedicineConstituents(String query) throws SQLException {
+        List<MedicineConstituent> list = new ArrayList<>();
+        String sql = """
+            SELECT * FROM medicine_constituents
+            WHERE remedy_id LIKE ? OR remedy_name LIKE ? OR common_and_indian_name LIKE ?
+               OR active_constituents LIKE ? OR pharmacological_action LIKE ?
+            ORDER BY remedy_name ASC LIMIT 150;
+        """;
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            String like = "%" + (query != null ? query.trim() : "") + "%";
+            for (int i = 1; i <= 5; i++) {
+                ps.setString(i, like);
+            }
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    list.add(mapMedicineConstituent(rs));
+                }
+            }
+        }
+        return list;
+    }
+
+    public void saveMedicineConstituent(MedicineConstituent mc) throws SQLException {
+        String sql = """
+            INSERT OR REPLACE INTO medicine_constituents (
+                remedy_id, remedy_name, common_and_indian_name, active_constituents,
+                pharmacological_action, organ_affinity, toxicology_and_antidotes, annexed_remarks, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+        """;
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, mc.remedyId());
+            ps.setString(2, mc.remedyName());
+            ps.setString(3, mc.commonAndIndianName());
+            ps.setString(4, mc.activeConstituents());
+            ps.setString(5, mc.pharmacologicalAction());
+            ps.setString(6, mc.organAffinity());
+            ps.setString(7, mc.toxicologyAndAntidotes());
+            ps.setString(8, mc.annexedRemarks());
+            ps.setTimestamp(9, Timestamp.from(Instant.now()));
+            ps.executeUpdate();
+        }
+    }
+
+    public MedicineConstituentRemark submitConstituentRemark(MedicineConstituentRemark r) throws SQLException {
+        String sql = """
+            INSERT INTO medicine_constituent_remarks (
+                id, remedy_id, submitted_by_user_id, submitted_by_user_name, proposed_remark, status, reviewed_by_admin_id, submitted_at, reviewed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+        """;
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, r.id());
+            ps.setString(2, r.remedyId());
+            ps.setString(3, r.submittedByUserId());
+            ps.setString(4, r.submittedByUserName());
+            ps.setString(5, r.proposedRemark());
+            ps.setString(6, r.status().name());
+            ps.setString(7, r.reviewedByAdminId());
+            ps.setTimestamp(8, Timestamp.from(r.submittedAt()));
+            ps.setTimestamp(9, r.reviewedAt() != null ? Timestamp.from(r.reviewedAt()) : null);
+            ps.executeUpdate();
+        }
+        return r;
+    }
+
+    public List<MedicineConstituentRemark> getPendingConstituentRemarks() throws SQLException {
+        List<MedicineConstituentRemark> list = new ArrayList<>();
+        String sql = "SELECT * FROM medicine_constituent_remarks WHERE status = 'PENDING' ORDER BY submitted_at ASC";
+        try (Connection conn = dbManager.getClinicConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            while (rs.next()) {
+                list.add(mapConstituentRemark(rs));
+            }
+        }
+        return list;
+    }
+
+    public List<MedicineConstituentRemark> getAllConstituentRemarks() throws SQLException {
+        List<MedicineConstituentRemark> list = new ArrayList<>();
+        String sql = "SELECT * FROM medicine_constituent_remarks ORDER BY submitted_at DESC";
+        try (Connection conn = dbManager.getClinicConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            while (rs.next()) {
+                list.add(mapConstituentRemark(rs));
+            }
+        }
+        return list;
+    }
+
+    public boolean approveConstituentRemark(String remarkId, String adminId) throws SQLException {
+        String sql = "SELECT * FROM medicine_constituent_remarks WHERE id = ?";
+        MedicineConstituentRemark remark = null;
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, remarkId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    remark = mapConstituentRemark(rs);
+                }
+            }
+        }
+
+        if (remark == null) return false;
+
+        Instant now = Instant.now();
+        // Update remark status
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(
+                     "UPDATE medicine_constituent_remarks SET status = 'APPROVED', reviewed_by_admin_id = ?, reviewed_at = ? WHERE id = ?")) {
+            ps.setString(1, adminId);
+            ps.setTimestamp(2, Timestamp.from(now));
+            ps.setString(3, remarkId);
+            ps.executeUpdate();
+        }
+
+        // Annex to medicine constituents
+        Optional<MedicineConstituent> optMc = getMedicineConstituent(remark.remedyId());
+        if (optMc.isPresent()) {
+            MedicineConstituent mc = optMc.get();
+            String existingRemarks = mc.annexedRemarks() != null ? mc.annexedRemarks() : "";
+            String newAnnex = String.format("\n[Approved %s by Admin; Submitted by %s]: %s",
+                    LocalDate.now(), remark.submittedByUserName(), remark.proposedRemark());
+            String updatedRemarks = existingRemarks.isBlank() ? newAnnex.trim() : existingRemarks + "\n" + newAnnex.trim();
+
+            MedicineConstituent updatedMc = new MedicineConstituent(
+                    mc.remedyId(), mc.remedyName(), mc.commonAndIndianName(), mc.activeConstituents(),
+                    mc.pharmacologicalAction(), mc.organAffinity(), mc.toxicologyAndAntidotes(),
+                    updatedRemarks, now
+            );
+            saveMedicineConstituent(updatedMc);
+        }
+        return true;
+    }
+
+    public boolean rejectConstituentRemark(String remarkId, String adminId) throws SQLException {
+        Instant now = Instant.now();
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(
+                     "UPDATE medicine_constituent_remarks SET status = 'REJECTED', reviewed_by_admin_id = ?, reviewed_at = ? WHERE id = ?")) {
+            ps.setString(1, adminId);
+            ps.setTimestamp(2, Timestamp.from(now));
+            ps.setString(3, remarkId);
+            return ps.executeUpdate() > 0;
+        }
+    }
+
+    // =========================================================================
+    // SECRET "REPORT OF FAITH" (ADMIN CLINICAL AUDIT DOSSIER)
+    // =========================================================================
+
+    public AdminFaithDossierEntry recordFaithDossierEntry(AdminFaithDossierEntry entry) throws SQLException {
+        String sql = """
+            INSERT INTO admin_faith_dossier (
+                id, consultation_id, patient_id, patient_name, doctor_id, doctor_name,
+                remedy_id, remedy_name, potency, repetition_frequency, violated_rule,
+                rule_severity, doctor_explanation, ai_risk_assessment, predicted_complications,
+                is_audited, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        """;
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, entry.id());
+            ps.setString(2, entry.consultationId());
+            ps.setString(3, entry.patientId());
+            ps.setString(4, entry.patientName());
+            ps.setString(5, entry.doctorId());
+            ps.setString(6, entry.doctorName());
+            ps.setString(7, entry.remedyId());
+            ps.setString(8, entry.remedyName());
+            ps.setString(9, entry.potency());
+            ps.setString(10, entry.repetitionFrequency());
+            ps.setString(11, entry.violatedRule());
+            ps.setString(12, entry.ruleSeverity().name());
+            ps.setString(13, entry.doctorExplanation());
+            ps.setString(14, entry.aiRiskAssessment());
+            ps.setString(15, entry.predictedComplications());
+            ps.setBoolean(16, entry.isAudited());
+            ps.setTimestamp(17, Timestamp.from(entry.createdAt()));
+            ps.executeUpdate();
+        }
+        return entry;
+    }
+
+    public List<AdminFaithDossierEntry> getFaithDossierEntries() throws SQLException {
+        List<AdminFaithDossierEntry> list = new ArrayList<>();
+        String sql = "SELECT * FROM admin_faith_dossier ORDER BY created_at DESC";
+        try (Connection conn = dbManager.getClinicConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            while (rs.next()) {
+                list.add(mapFaithDossierEntry(rs));
+            }
+        }
+        return list;
+    }
+
+    public void markFaithDossierAudited(String id) throws SQLException {
+        String sql = "UPDATE admin_faith_dossier SET is_audited = TRUE WHERE id = ?";
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, id);
+            ps.executeUpdate();
+        }
+    }
+
+    // =========================================================================
+    // NETWORK & REMOTE DB CONFIGURATION
+    // =========================================================================
+
+    public NetworkConfig getNetworkConfig() throws SQLException {
+        String sql = "SELECT settings_json FROM network_settings WHERE id = 'active_network_config'";
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            if (rs.next()) {
+                String json = rs.getString(1);
+                return parseNetworkConfigJson(json);
+            }
+        }
+        return NetworkConfig.defaultLocal();
+    }
+
+    public void saveNetworkConfig(NetworkConfig config) throws SQLException {
+        String json = serializeNetworkConfigJson(config);
+        String sql = """
+            INSERT OR REPLACE INTO network_settings (id, settings_json, updated_at)
+            VALUES ('active_network_config', ?, CURRENT_TIMESTAMP);
+        """;
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, json);
+            ps.executeUpdate();
+        }
+    }
+
+    private String serializeNetworkConfigJson(NetworkConfig c) {
+        return String.format(
+            "{\"mode\":\"%s\",\"remoteHost\":\"%s\",\"remotePort\":%d,\"remoteDbName\":\"%s\"," +
+            "\"dbUsername\":\"%s\",\"sshHost\":\"%s\",\"sshPort\":%d,\"sshUser\":\"%s\"," +
+            "\"sshKeyPath\":\"%s\",\"reverseSshPort\":%d,\"autoSsh\":%b,\"lanDiscovery\":%b,\"status\":\"%s\"}",
+            c.connectionMode().name(),
+            escapeJson(c.remoteHost()), c.remotePort(), escapeJson(c.remoteDbName()),
+            escapeJson(c.dbUsername()), escapeJson(c.sshHost()), c.sshPort(), escapeJson(c.sshUser()),
+            escapeJson(c.sshKeyPath()), c.reverseSshPort(), c.autoSshEnabled(), c.lanDiscoveryActive(),
+            escapeJson(c.lastConnectionStatus())
+        );
+    }
+
+    private NetworkConfig parseNetworkConfigJson(String json) {
+        if (json == null || json.isBlank()) return NetworkConfig.defaultLocal();
+        try {
+            NetworkConfig.ConnectionMode mode = NetworkConfig.ConnectionMode.valueOf(extractJsonField(json, "mode", "LOCAL_EMBEDDED"));
+            String remoteHost = extractJsonField(json, "remoteHost", "127.0.0.1");
+            int remotePort = Integer.parseInt(extractJsonField(json, "remotePort", "45824"));
+            String remoteDbName = extractJsonField(json, "remoteDbName", "user_clinic.db");
+            String dbUsername = extractJsonField(json, "dbUsername", "admin");
+            String sshHost = extractJsonField(json, "sshHost", "127.0.0.1");
+            int sshPort = Integer.parseInt(extractJsonField(json, "sshPort", "22"));
+            String sshUser = extractJsonField(json, "sshUser", "homeo_admin");
+            String sshKeyPath = extractJsonField(json, "sshKeyPath", "~/.ssh/id_rsa");
+            int reverseSshPort = Integer.parseInt(extractJsonField(json, "reverseSshPort", "45824"));
+            boolean autoSsh = Boolean.parseBoolean(extractJsonField(json, "autoSsh", "false"));
+            boolean lanDiscovery = Boolean.parseBoolean(extractJsonField(json, "lanDiscovery", "true"));
+            String status = extractJsonField(json, "status", "Configured");
+            return new NetworkConfig(mode, remoteHost, remotePort, remoteDbName, dbUsername, "", sshHost, sshPort, sshUser, sshKeyPath, reverseSshPort, autoSsh, lanDiscovery, status, Instant.now());
+        } catch (Exception e) {
+            return NetworkConfig.defaultLocal();
+        }
+    }
+
+    private String extractJsonField(String json, String field, String fallback) {
+        String pattern = "\"" + field + "\":";
+        int idx = json.indexOf(pattern);
+        if (idx == -1) return fallback;
+        int start = idx + pattern.length();
+        if (json.charAt(start) == '"') {
+            int end = json.indexOf('"', start + 1);
+            return end != -1 ? json.substring(start + 1, end) : fallback;
+        } else {
+            int end = json.indexOf(',', start);
+            if (end == -1) end = json.indexOf('}', start);
+            return end != -1 ? json.substring(start, end).trim() : fallback;
+        }
+    }
+
+    private String escapeJson(String s) {
+        return s == null ? "" : s.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
+    private MedicineConstituent mapMedicineConstituent(ResultSet rs) throws SQLException {
+        Timestamp ts = rs.getTimestamp("updated_at");
+        return new MedicineConstituent(
+                rs.getString("remedy_id"),
+                rs.getString("remedy_name"),
+                rs.getString("common_and_indian_name"),
+                rs.getString("active_constituents"),
+                rs.getString("pharmacological_action"),
+                rs.getString("organ_affinity"),
+                rs.getString("toxicology_and_antidotes"),
+                rs.getString("annexed_remarks"),
+                ts != null ? ts.toInstant() : Instant.now()
+        );
+    }
+
+    private MedicineConstituentRemark mapConstituentRemark(ResultSet rs) throws SQLException {
+        Timestamp sub = rs.getTimestamp("submitted_at");
+        Timestamp rev = rs.getTimestamp("reviewed_at");
+        return new MedicineConstituentRemark(
+                rs.getString("id"),
+                rs.getString("remedy_id"),
+                rs.getString("submitted_by_user_id"),
+                rs.getString("submitted_by_user_name"),
+                rs.getString("proposed_remark"),
+                MedicineConstituentRemark.Status.valueOf(rs.getString("status")),
+                rs.getString("reviewed_by_admin_id"),
+                sub != null ? sub.toInstant() : Instant.now(),
+                rev != null ? rev.toInstant() : null
+        );
+    }
+
+    private AdminFaithDossierEntry mapFaithDossierEntry(ResultSet rs) throws SQLException {
+        Timestamp created = rs.getTimestamp("created_at");
+        return new AdminFaithDossierEntry(
+                rs.getString("id"),
+                rs.getString("consultation_id"),
+                rs.getString("patient_id"),
+                rs.getString("patient_name"),
+                rs.getString("doctor_id"),
+                rs.getString("doctor_name"),
+                rs.getString("remedy_id"),
+                rs.getString("remedy_name"),
+                rs.getString("potency"),
+                rs.getString("repetition_frequency"),
+                rs.getString("violated_rule"),
+                AdminFaithDossierEntry.RuleSeverity.valueOf(rs.getString("rule_severity")),
+                rs.getString("doctor_explanation"),
+                rs.getString("ai_risk_assessment"),
+                rs.getString("predicted_complications"),
+                rs.getBoolean("is_audited"),
+                created != null ? created.toInstant() : Instant.now()
         );
     }
 

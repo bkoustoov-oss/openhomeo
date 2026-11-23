@@ -9,9 +9,11 @@ import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 import javafx.stage.FileChooser;
 import org.openhomeo.core.ai.EntryPointSuggestionEngine;
+import org.openhomeo.core.ai.PrescriptionLogicAnalyzer;
 import org.openhomeo.core.db.ClinicDao;
 import org.openhomeo.core.db.MasterKnowledgeDao;
 import org.openhomeo.core.model.*;
+import org.openhomeo.core.net.NetworkDiscoveryService;
 import org.openhomeo.core.pdf.PrescriptionPdfService;
 import org.openhomeo.core.repertory.SymptomClipboard;
 import org.slf4j.Logger;
@@ -19,6 +21,7 @@ import org.slf4j.LoggerFactory;
 
 import java.awt.Desktop;
 import java.io.File;
+import java.sql.SQLException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -132,24 +135,32 @@ public class CaseTakingView extends BorderPane {
             computeEntryPointSuggestions();
         });
 
+        Button filterPatBtn = new Button("🔍 Filter Patients");
+        filterPatBtn.getStyleClass().add(Styles.BUTTON_OUTLINED);
+        filterPatBtn.setOnAction(e -> showPatientFilterDialog());
+
         Button newPatBtn = new Button("New Patient");
         newPatBtn.getStyleClass().add(Styles.BUTTON_OUTLINED);
         newPatBtn.setOnAction(e -> showNewPatientDialog());
 
         doctorCombo = new ComboBox<>();
         doctorCombo.setPromptText("Select Attending Doctor...");
-        doctorCombo.setPrefWidth(340);
+        doctorCombo.setPrefWidth(300);
 
         Button manageDocsBtn = new Button("Enlist / Manage Doctors");
         manageDocsBtn.getStyleClass().add(Styles.BUTTON_OUTLINED);
         manageDocsBtn.setOnAction(e -> showDoctorManagementDialog());
 
+        Button autoLanBtn = new Button("🌐 Auto-Search LAN");
+        autoLanBtn.getStyleClass().add(Styles.BUTTON_OUTLINED);
+        autoLanBtn.setOnAction(e -> triggerLanAutoConnect());
+
         statusLabel = new Label("Ready");
         statusLabel.getStyleClass().add(Styles.TEXT_MUTED);
 
         topBar.getChildren().addAll(
-                new Label("Patient:"), patientCombo, newPatBtn,
-                new Label("Doctor:"), doctorCombo, manageDocsBtn,
+                new Label("Patient:"), patientCombo, filterPatBtn, newPatBtn,
+                new Label("Doctor:"), doctorCombo, manageDocsBtn, autoLanBtn,
                 statusLabel
         );
         setTop(topBar);
@@ -309,11 +320,15 @@ public class CaseTakingView extends BorderPane {
         saveAndPrintBtn.getStyleClass().addAll(Styles.ACCENT, Styles.LARGE);
         saveAndPrintBtn.setOnAction(e -> saveCurrentConsultation(true));
 
+        Button logicAnalysisBtn = new Button("🧠 Classical Logic & Case Trajectory");
+        logicAnalysisBtn.getStyleClass().addAll(Styles.BUTTON_OUTLINED, Styles.LARGE);
+        logicAnalysisBtn.setOnAction(e -> showCaseLogicAnalysisDialog());
+
         autoFitCheck = new CheckBox("Auto-Fit to 1 Page (Prescription Slip)");
         autoFitCheck.setSelected(true);
         autoFitCheck.setTooltip(new Tooltip("Fits all clinical and prescription details onto exactly one A4 page without awkward page breaks"));
 
-        actionBox.getChildren().addAll(saveConsultBtn, saveAndPrintBtn, autoFitCheck);
+        actionBox.getChildren().addAll(saveConsultBtn, saveAndPrintBtn, logicAnalysisBtn, autoFitCheck);
 
         formBox.getChildren().addAll(
                 new Label("Chief Complaint:"), chiefComplaintArea,
@@ -677,6 +692,29 @@ public class CaseTakingView extends BorderPane {
             List<Prescription> prescriptions = new ArrayList<>();
             RemedyItem remItem = remedyCombo.getValue();
             if (remItem != null) {
+                // Logic-Centric Classical Homeopathic Clinical AI Evaluation
+                List<Consultation> pastConsults = clinicDao.getConsultationsForPatient(sel.patient.id());
+                List<Prescription> pastRx = new ArrayList<>();
+                for (Consultation pc : pastConsults) {
+                    if (pc.prescriptions() != null) pastRx.addAll(pc.prescriptions());
+                }
+
+                PrescriptionLogicAnalyzer analyzer = new PrescriptionLogicAnalyzer();
+                PrescriptionLogicAnalyzer.AnalysisResult analysis = analyzer.analyzePrescription(
+                        remItem.remedy.id(), remItem.remedy.fullName(),
+                        potencyField.getText().trim(), scaleCombo.getValue(),
+                        repetitionField.getText().trim(), pastRx,
+                        complaint, heringsLawArea.getText().trim()
+                );
+
+                if (analysis.requiresDoctorInterrogation()) {
+                    boolean proceed = showAiInterrogationDialog(analyzer, analysis, sel.patient, docItem != null ? docItem.doctor : null, remItem.remedy, consultId);
+                    if (!proceed) {
+                        statusLabel.setText("Prescription cancelled for posological revision.");
+                        return;
+                    }
+                }
+
                 prescriptions.add(new Prescription(
                         UUID.randomUUID().toString(), consultId,
                         remItem.remedy.id(), remItem.remedy.fullName(),
@@ -962,6 +1000,259 @@ public class CaseTakingView extends BorderPane {
             }
             statusLabel.setText("Patient registered: " + newPatient.firstName() + " " + newPatient.lastName());
         });
+    }
+
+    private boolean showAiInterrogationDialog(
+            PrescriptionLogicAnalyzer analyzer,
+            PrescriptionLogicAnalyzer.AnalysisResult analysis,
+            Patient patient,
+            Doctor doctor,
+            Remedy remedy,
+            String consultId
+    ) {
+        Dialog<Boolean> dlg = new Dialog<>();
+        dlg.setTitle("Classical Posology & Logic Interrogation (Kentian & Organon Canon)");
+        dlg.setHeaderText("The Classical Logic AI has detected posological or relational discrepancies:");
+
+        VBox content = new VBox(12);
+        content.setPadding(new Insets(14));
+        content.setPrefWidth(600);
+
+        List<TextArea> explanationAreas = new ArrayList<>();
+        List<PrescriptionLogicAnalyzer.RuleCheck> checks = analysis.ruleChecks();
+
+        for (PrescriptionLogicAnalyzer.RuleCheck check : checks) {
+            VBox checkCard = new VBox(6);
+            checkCard.setPadding(new Insets(10));
+            checkCard.setStyle("-fx-background-color: -color-bg-subtle; -fx-border-color: -color-danger-emphasis; -fx-border-radius: 6; -fx-background-radius: 6;");
+
+            Label lblRule = new Label("⚠️ " + check.ruleTitle() + " (" + check.severity() + ")");
+            lblRule.setFont(Font.font("Segoe UI", FontWeight.BOLD, 13));
+            lblRule.setStyle("-fx-text-fill: -color-danger-fg;");
+
+            Label lblCanon = new Label(check.canonCitation());
+            lblCanon.setWrapText(true);
+            lblCanon.setStyle("-fx-font-style: italic; -fx-font-size: 11px;");
+
+            Label lblDetail = new Label("Detail: " + check.discrepancyDetail());
+            lblDetail.setWrapText(true);
+
+            Label lblQuestion = new Label("❓ Interrogation: " + check.clinicalQuestion());
+            lblQuestion.setFont(Font.font("Segoe UI", FontWeight.BOLD, 12));
+            lblQuestion.setWrapText(true);
+
+            TextArea txtExplanation = new TextArea();
+            txtExplanation.setPromptText("Enter clinical justification (e.g. split water plussing under Organon §248, acute spasm crisis, palliative drainage)...");
+            txtExplanation.setPrefRowCount(3);
+            txtExplanation.setWrapText(true);
+
+            checkCard.getChildren().addAll(lblRule, lblCanon, lblDetail, lblQuestion, txtExplanation);
+            content.getChildren().add(checkCard);
+            explanationAreas.add(txtExplanation);
+        }
+
+        ButtonType btnRevise = new ButtonType("Cancel & Revise Prescription", ButtonBar.ButtonData.CANCEL_CLOSE);
+        ButtonType btnConfirm = new ButtonType("Confirm & Proceed", ButtonBar.ButtonData.OK_DONE);
+        dlg.getDialogPane().getButtonTypes().addAll(btnConfirm, btnRevise);
+        dlg.getDialogPane().setContent(content);
+
+        dlg.setResultConverter(btn -> {
+            if (btn == btnConfirm) {
+                for (int i = 0; i < checks.size(); i++) {
+                    PrescriptionLogicAnalyzer.RuleCheck check = checks.get(i);
+                    String explanation = explanationAreas.get(i).getText().trim();
+                    PrescriptionLogicAnalyzer.ExplanationEvaluation eval = analyzer.evaluateDoctorExplanation(check, explanation);
+
+                    if (eval.shouldLogToFaithDossier()) {
+                        try {
+                            AdminFaithDossierEntry entry = new AdminFaithDossierEntry(
+                                    UUID.randomUUID().toString(),
+                                    consultId,
+                                    patient.id(),
+                                    patient.firstName() + " " + patient.lastName(),
+                                    doctor != null ? doctor.id() : "doc-unknown",
+                                    doctor != null ? doctor.fullName() : "Attending Doctor",
+                                    remedy.id(),
+                                    remedy.fullName(),
+                                    potencyField.getText().trim(),
+                                    repetitionField.getText().trim(),
+                                    check.ruleCode(),
+                                    check.severity(),
+                                    explanation,
+                                    eval.riskGrade(),
+                                    eval.predictedComplications(),
+                                    false,
+                                    Instant.now()
+                            );
+                            clinicDao.recordFaithDossierEntry(entry);
+                            log.info("Confidential Report of Faith entry recorded: {}", check.ruleCode());
+                        } catch (Exception ex) {
+                            log.error("Failed to record faith dossier entry", ex);
+                        }
+                    }
+                }
+                return true;
+            }
+            return false;
+        });
+
+        Optional<Boolean> res = dlg.showAndWait();
+        return res.orElse(false);
+    }
+
+    private void showCaseLogicAnalysisDialog() {
+        PatientItem sel = patientCombo.getValue();
+        if (sel == null) {
+            showAlert("No Patient Selected", "Please select a patient to analyze case trajectory and logic.");
+            return;
+        }
+
+        try {
+            List<Consultation> history = clinicDao.getConsultationsForPatient(sel.patient.id());
+            RemedyItem remItem = remedyCombo.getValue();
+            PrescriptionLogicAnalyzer analyzer = new PrescriptionLogicAnalyzer();
+            String synthesis = analyzer.analyzeHistoricalCaseTrajectory(
+                    sel.patient.firstName() + " " + sel.patient.lastName(),
+                    history,
+                    remItem != null ? remItem.remedy : null,
+                    potencyField.getText().trim()
+            );
+
+            Alert alert = new Alert(Alert.AlertType.INFORMATION);
+            alert.setTitle("Classical Case Trajectory & Logic Analyzer");
+            alert.setHeaderText("Hering's Law and Longitudinal Case Progression Analysis");
+
+            TextArea ta = new TextArea(synthesis);
+            ta.setEditable(false);
+            ta.setWrapText(true);
+            ta.setPrefRowCount(14);
+            ta.setPrefWidth(550);
+
+            alert.getDialogPane().setContent(ta);
+            alert.showAndWait();
+        } catch (SQLException ex) {
+            log.error("Failed to analyze case history", ex);
+        }
+    }
+
+    private void showPatientFilterDialog() {
+        Dialog<Patient> dlg = new Dialog<>();
+        dlg.setTitle("Search & Filter Patients");
+        dlg.setHeaderText("Filter patients by Category, Gender, Age group, Constitution, and Miasm");
+
+        VBox root = new VBox(10);
+        root.setPadding(new Insets(12));
+        root.setPrefWidth(550);
+
+        TextField txtSearch = new TextField();
+        txtSearch.setPromptText("Search by Name, Case Number, or Phone...");
+
+        ComboBox<String> comboCat = new ComboBox<>(javafx.collections.FXCollections.observableArrayList(
+                "ALL", "Student", "Executive", "Laborer", "Homemaker", "Teacher", "Retired", "General"
+        ));
+        comboCat.setValue("ALL");
+
+        ComboBox<String> comboGender = new ComboBox<>(javafx.collections.FXCollections.observableArrayList(
+                "ALL", "Male", "Female", "Other"
+        ));
+        comboGender.setValue("ALL");
+
+        ComboBox<String> comboAge = new ComboBox<>(javafx.collections.FXCollections.observableArrayList(
+                "ALL", "Pediatric (< 12 yrs)", "Adolescent (12-18 yrs)", "Adult (18-60 yrs)", "Geriatric (> 60 yrs)"
+        ));
+        comboAge.setValue("ALL");
+
+        ComboBox<String> comboConst = new ComboBox<>(javafx.collections.FXCollections.observableArrayList(
+                "ALL", "Carbonic", "Phosphoric", "Fluoric", "Sulphuric", "Hydrogenoid", "Oxygenoid", "Carbo-nitrogenoid"
+        ));
+        comboConst.setValue("ALL");
+
+        ComboBox<String> comboMiasm = new ComboBox<>(javafx.collections.FXCollections.observableArrayList(
+                "ALL", "PSORA", "SYCOSIS", "SYPHILIS", "TUBERCULAR", "CANCER"
+        ));
+        comboMiasm.setValue("ALL");
+
+        GridPane grid = new GridPane();
+        grid.setHgap(8);
+        grid.setVgap(8);
+        grid.addRow(0, new Label("Search Text:"), txtSearch);
+        grid.addRow(1, new Label("Category / Occupation:"), comboCat);
+        grid.addRow(2, new Label("Gender:"), comboGender);
+        grid.addRow(3, new Label("Age Group:"), comboAge);
+        grid.addRow(4, new Label("Constitution:"), comboConst);
+        grid.addRow(5, new Label("Miasm:"), comboMiasm);
+
+        ListView<PatientItem> resultList = new ListView<>();
+        resultList.setPrefHeight(180);
+
+        Label lblCount = new Label("Matches: 0");
+
+        Runnable runQuery = () -> {
+            try {
+                List<Patient> found = clinicDao.searchPatientsFiltered(
+                        txtSearch.getText().trim(), comboCat.getValue(), comboGender.getValue(),
+                        comboAge.getValue(), comboConst.getValue(), comboMiasm.getValue()
+                );
+                resultList.getItems().clear();
+                for (Patient p : found) {
+                    resultList.getItems().add(new PatientItem(p));
+                }
+                lblCount.setText("Matches found: " + found.size());
+            } catch (SQLException ex) {
+                log.error("Filter error", ex);
+            }
+        };
+
+        txtSearch.textProperty().addListener((o, ov, nv) -> runQuery.run());
+        comboCat.setOnAction(e -> runQuery.run());
+        comboGender.setOnAction(e -> runQuery.run());
+        comboAge.setOnAction(e -> runQuery.run());
+        comboConst.setOnAction(e -> runQuery.run());
+        comboMiasm.setOnAction(e -> runQuery.run());
+
+        runQuery.run();
+
+        root.getChildren().addAll(grid, new Label("Filtered Patient Results (Select to load):"), resultList, lblCount);
+        dlg.getDialogPane().setContent(root);
+
+        ButtonType btnSelect = new ButtonType("Select Patient", ButtonBar.ButtonData.OK_DONE);
+        dlg.getDialogPane().getButtonTypes().addAll(btnSelect, ButtonType.CANCEL);
+
+        dlg.setResultConverter(btn -> {
+            if (btn == btnSelect && resultList.getSelectionModel().getSelectedItem() != null) {
+                return resultList.getSelectionModel().getSelectedItem().patient;
+            }
+            return null;
+        });
+
+        dlg.showAndWait().ifPresent(selectedPatient -> {
+            loadInitialData();
+            for (PatientItem item : patientCombo.getItems()) {
+                if (item.patient.id().equals(selectedPatient.id())) {
+                    patientCombo.getSelectionModel().select(item);
+                    break;
+                }
+            }
+            statusLabel.setText("Loaded filtered patient: " + selectedPatient.firstName() + " " + selectedPatient.lastName());
+        });
+    }
+
+    private void triggerLanAutoConnect() {
+        statusLabel.setText("Probing LAN for clinic database host beacon...");
+        Optional<NetworkDiscoveryService.DiscoveredClinicHost> host = NetworkDiscoveryService.discoverClinicHost(2000);
+        if (host.isPresent()) {
+            NetworkDiscoveryService.DiscoveredClinicHost h = host.get();
+            statusLabel.setText("Connected to " + h.clinicName() + " (" + h.hostIp() + ":" + h.port() + ")");
+            showAlert("LAN Auto-Connect", "Successfully located Clinic LAN Host:\n\n" +
+                    "• Clinic: " + h.clinicName() + "\n" +
+                    "• Host: " + h.hostName() + " (" + h.hostIp() + ")\n" +
+                    "• Port: " + h.port() + " | Mode: " + h.dbMode() + "\n" +
+                    "• Latency: " + h.responseTimeMs() + " ms\n\n" +
+                    "Workstation is synchronized with the shared clinic network database.");
+        } else {
+            statusLabel.setText("Operating on Local Embedded Database");
+            showAlert("LAN Discovery", "No OpenHomeo Clinic Host detected on local Wi-Fi / subnet.\nOperating on Local Embedded Database.");
+        }
     }
 
     private void showAlert(String title, String message) {

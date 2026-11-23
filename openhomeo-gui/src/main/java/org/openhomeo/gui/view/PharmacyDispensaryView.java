@@ -40,12 +40,14 @@ public class PharmacyDispensaryView extends BorderPane {
     private final ObservableList<PharmacyOrder> ordersList = FXCollections.observableArrayList();
     private final ObservableList<StockReorderRequest> reordersList = FXCollections.observableArrayList();
     private final ObservableList<PharmacyBill> billsList = FXCollections.observableArrayList();
+    private final ObservableList<MedicineConstituent> masterConstituentsList = FXCollections.observableArrayList();
 
     // UI Components
     private TableView<MedicineInventoryItem> inventoryTable;
     private TableView<PharmacyOrder> ordersTable;
     private TableView<StockReorderRequest> reordersTable;
     private TableView<PharmacyBill> billsTable;
+    private TableView<MedicineConstituent> masterConstituentsTable;
     private Label statusLabel;
 
     public PharmacyDispensaryView(ClinicDao clinicDao, MasterKnowledgeDao masterDao, SecurityService securityService) {
@@ -61,11 +63,12 @@ public class PharmacyDispensaryView extends BorderPane {
 
         Tab tabStock = new Tab("📦 Live Stock Register", createStockRegisterPane());
         Tab tabChecklist = new Tab("⚡ Multi-Medicine Batch Checklist Entry", createChecklistBatchPane());
+        Tab tabMasterVsStock = new Tab("📖 Master Medicine Directory & Pharmacology", createMasterVsStockPane());
         Tab tabOrders = new Tab("📋 Doctor Orders & Internal Consultation", createOrdersPane());
         Tab tabReorder = new Tab("🔄 Volume Reorder & Approvals", createReorderPane());
         Tab tabBilling = new Tab("💳 Dispensary Billing & Invoicing", createBillingPane());
 
-        subTabs.getTabs().addAll(tabStock, tabChecklist, tabOrders, tabReorder, tabBilling);
+        subTabs.getTabs().addAll(tabStock, tabChecklist, tabMasterVsStock, tabOrders, tabReorder, tabBilling);
         setCenter(subTabs);
 
         refreshAllData();
@@ -955,6 +958,207 @@ public class PharmacyDispensaryView extends BorderPane {
     }
 
     // =========================================================================
+    // MASTER MEDICINE DIRECTORY & PHARMACOLOGICAL CONSTITUENTS VS STOCK
+    // =========================================================================
+
+    private Node createMasterVsStockPane() {
+        BorderPane pane = new BorderPane();
+        pane.setPadding(new Insets(10));
+
+        // Top Search Bar
+        HBox topBox = new HBox(12);
+        topBox.setAlignment(Pos.CENTER_LEFT);
+        topBox.setPadding(new Insets(0, 0, 10, 0));
+
+        TextField searchField = new TextField();
+        searchField.setPromptText("Search master remedies by Latin, common, or Indian name (e.g. Neem, Arjuna, Calendula, Jamun)...");
+        searchField.setPrefWidth(480);
+        searchField.textProperty().addListener((obs, oldVal, newVal) -> {
+            filterMasterConstituents(newVal);
+        });
+
+        Region sp = new Region();
+        HBox.setHgrow(sp, Priority.ALWAYS);
+
+        Label infoBadge = new Label("READ-ONLY MASTER DIRECTORY • PROPOSALS SUBJECT TO ADMIN APPROVAL");
+        infoBadge.getStyleClass().addAll(Styles.TEXT_SMALL, Styles.WARNING);
+
+        topBox.getChildren().addAll(new Label("Filter Medicines:"), searchField, sp, infoBadge);
+        pane.setTop(topBox);
+
+        // Split Layout: Left = Table, Right = Scientific Monograph
+        SplitPane split = new SplitPane();
+        split.setDividerPositions(0.48);
+
+        // Left Table
+        masterConstituentsTable = new TableView<>(masterConstituentsList);
+        masterConstituentsTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_ALL_COLUMNS);
+
+        TableColumn<MedicineConstituent, String> colLatin = new TableColumn<>("Latin Binomial Name");
+        colLatin.setCellValueFactory(mc -> new SimpleStringProperty(mc.getValue().remedyName()));
+
+        TableColumn<MedicineConstituent, String> colCommon = new TableColumn<>("Common / Indian Name");
+        colCommon.setCellValueFactory(mc -> new SimpleStringProperty(mc.getValue().commonAndIndianName()));
+
+        TableColumn<MedicineConstituent, String> colStock = new TableColumn<>("Dispensary Stock Presence");
+        colStock.setCellValueFactory(mc -> {
+            String remId = mc.getValue().remedyId();
+            int totalUnits = inventoryList.stream()
+                    .filter(i -> i.remedyId() != null && i.remedyId().equalsIgnoreCase(remId))
+                    .mapToInt(MedicineInventoryItem::currentStockQty)
+                    .sum();
+            if (totalUnits > 0) {
+                return new SimpleStringProperty("✓ IN STOCK (" + totalUnits + " units)");
+            } else {
+                return new SimpleStringProperty("⚠ NOT IN STOCK (0)");
+            }
+        });
+
+        masterConstituentsTable.getColumns().addAll(List.of(colLatin, colCommon, colStock));
+
+        // Right Detail Card
+        ScrollPane detailScroll = new ScrollPane();
+        detailScroll.setFitToWidth(true);
+        VBox detailCard = new VBox(12);
+        detailCard.setPadding(new Insets(14));
+        detailCard.setStyle("-fx-background-color: -color-bg-subtle; -fx-background-radius: 8;");
+
+        Label lblTitle = new Label("Select a medicine on the left to inspect internal constituents...");
+        lblTitle.setFont(Font.font("Segoe UI", FontWeight.BOLD, 16));
+        lblTitle.getStyleClass().add(Styles.ACCENT);
+
+        Label lblIndian = new Label("");
+        lblIndian.setFont(Font.font("Segoe UI", FontWeight.SEMI_BOLD, 13));
+        lblIndian.getStyleClass().add(Styles.TEXT_MUTED);
+
+        TextArea txtActive = createMonographTextArea();
+        TextArea txtPharm = createMonographTextArea();
+        TextArea txtOrgan = createMonographTextArea();
+        TextArea txtTox = createMonographTextArea();
+        TextArea txtAnnex = createMonographTextArea();
+
+        Button btnProposeRemark = new Button("📝 Propose Scientific Remark / Clinical Correction");
+        btnProposeRemark.getStyleClass().addAll(Styles.BUTTON_OUTLINED, Styles.SUCCESS);
+        btnProposeRemark.setDisable(true);
+
+        detailCard.getChildren().addAll(
+                lblTitle, lblIndian,
+                new Separator(),
+                new Label("🔬 Active Phytochemical, Biochemical & Alkaloid/Glycoside Constituents:"), txtActive,
+                new Label("⚙️ Scientific Mode of Action (Cellular & Pharmacological):"), txtPharm,
+                new Label("🎯 Organ System & Tissue Affinity:"), txtOrgan,
+                new Label("⚠️ Toxicology, Antidotes & Incompatible Principles:"), txtTox,
+                new Label("📋 Approved Clinical Remarks (Annexed by Admin):"), txtAnnex,
+                new Separator(),
+                btnProposeRemark
+        );
+        detailScroll.setContent(detailCard);
+
+        masterConstituentsTable.getSelectionModel().selectedItemProperty().addListener((obs, oldVal, mc) -> {
+            if (mc != null) {
+                lblTitle.setText(mc.remedyName());
+                lblIndian.setText("Common / Indian Name: " + mc.commonAndIndianName());
+                txtActive.setText(mc.activeConstituents());
+                txtPharm.setText(mc.pharmacologicalAction());
+                txtOrgan.setText(mc.organAffinity());
+                txtTox.setText(mc.toxicologyAndAntidotes());
+                txtAnnex.setText((mc.annexedRemarks() != null && !mc.annexedRemarks().isBlank())
+                        ? mc.annexedRemarks()
+                        : "No annexed remarks yet. Doctors or pharmacists may submit proposed observations below.");
+                btnProposeRemark.setDisable(false);
+            } else {
+                btnProposeRemark.setDisable(true);
+            }
+        });
+
+        btnProposeRemark.setOnAction(e -> {
+            MedicineConstituent sel = masterConstituentsTable.getSelectionModel().getSelectedItem();
+            if (sel != null) {
+                showProposeRemarkDialog(sel);
+            }
+        });
+
+        split.getItems().addAll(masterConstituentsTable, detailScroll);
+        pane.setCenter(split);
+
+        return pane;
+    }
+
+    private TextArea createMonographTextArea() {
+        TextArea ta = new TextArea();
+        ta.setEditable(false);
+        ta.setWrapText(true);
+        ta.setPrefRowCount(3);
+        ta.setStyle("-fx-font-size: 12px;");
+        return ta;
+    }
+
+    private void filterMasterConstituents(String query) {
+        try {
+            if (query == null || query.isBlank()) {
+                masterConstituentsList.setAll(clinicDao.getAllMedicineConstituents());
+            } else {
+                masterConstituentsList.setAll(clinicDao.searchMedicineConstituents(query));
+            }
+        } catch (SQLException ex) {
+            log.error("Failed to filter master constituents", ex);
+        }
+    }
+
+    private void showProposeRemarkDialog(MedicineConstituent mc) {
+        Dialog<String> dialog = new Dialog<>();
+        dialog.setTitle("Propose Scientific Remark / Clinical Correction");
+        dialog.setHeaderText("Remedy: " + mc.remedyName() + " (" + mc.commonAndIndianName() + ")\n" +
+                "Note: Master data is read-only. Your proposed remark will be queued for Admin approval\n" +
+                "and permanently annexed to this monograph with your username and timestamp upon review.");
+
+        VBox box = new VBox(10);
+        box.setPadding(new Insets(12));
+
+        TextArea txtInput = new TextArea();
+        txtInput.setPromptText("Enter validated biochemical finding, clinical observation, or pharmacological correction...");
+        txtInput.setWrapText(true);
+        txtInput.setPrefRowCount(5);
+
+        box.getChildren().addAll(new Label("Your Clinical Remark / Correction:"), txtInput);
+        dialog.getDialogPane().setContent(box);
+        dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+
+        dialog.setResultConverter(btn -> btn == ButtonType.OK ? txtInput.getText().trim() : null);
+
+        dialog.showAndWait().ifPresent(remarkText -> {
+            if (!remarkText.isBlank()) {
+                try {
+                    String userId = "usr-doc";
+                    String userName = "Dr. Consulting Prescriber";
+                    if (securityService.getCurrentSession() != null) {
+                        User u = securityService.getCurrentSession().user();
+                        userId = u.id();
+                        userName = u.fullName();
+                    }
+
+                    MedicineConstituentRemark r = new MedicineConstituentRemark(
+                            UUID.randomUUID().toString(),
+                            mc.remedyId(),
+                            userId,
+                            userName,
+                            remarkText,
+                            MedicineConstituentRemark.Status.PENDING,
+                            null,
+                            Instant.now(),
+                            null
+                    );
+                    clinicDao.submitConstituentRemark(r);
+                    showAlert("Proposal Submitted", "Your proposed remark for " + mc.remedyName() + " has been submitted to the Administrator for approval and annexation.");
+                } catch (SQLException ex) {
+                    log.error("Failed to submit remark", ex);
+                    showAlert("Submission Error", "Failed to submit remark: " + ex.getMessage());
+                }
+            }
+        });
+    }
+
+    // =========================================================================
     // GENERAL REFRESH
     // =========================================================================
 
@@ -964,7 +1168,8 @@ public class PharmacyDispensaryView extends BorderPane {
             ordersList.setAll(clinicDao.getAllPharmacyOrders());
             reordersList.setAll(clinicDao.getAllReorderRequests());
             billsList.setAll(clinicDao.getAllPharmacyBills());
-            statusLabel.setText("Data refreshed. Total Stock Items: " + inventoryList.size());
+            masterConstituentsList.setAll(clinicDao.getAllMedicineConstituents());
+            statusLabel.setText("Data refreshed. Total Stock Items: " + inventoryList.size() + " | Master Medicines: " + masterConstituentsList.size());
         } catch (SQLException ex) {
             log.error("Failed to refresh pharmacy data", ex);
         }

@@ -127,10 +127,15 @@ public class MainWindow {
 
         tabPane.getTabs().addAll(tabRep, tabCase, tabPharmacy, tabImage, tabMM);
 
-        // Role-based initial tab selection
+        // Role-based initial tab selection & Admin Pane mounting
         if (securityService.getCurrentSession() != null) {
             User u = securityService.getCurrentSession().user();
-            if (u.role() == User.UserRole.PHARMACIST) {
+            if (u.role() == User.UserRole.ADMIN) {
+                AdminManagementView adminView = new AdminManagementView(clinicDao, securityService);
+                Tab tabAdmin = new Tab("Admin Management", adminView);
+                tabPane.getTabs().add(tabAdmin);
+                tabPane.getSelectionModel().select(tabAdmin);
+            } else if (u.role() == User.UserRole.PHARMACIST) {
                 tabPane.getSelectionModel().select(tabPharmacy);
             } else if (u.role() == User.UserRole.DOCTOR || u.role() == User.UserRole.HOMEOPATH) {
                 tabPane.getSelectionModel().select(tabCase);

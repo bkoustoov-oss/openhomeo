@@ -120,4 +120,44 @@ public class GuiComponentTest {
 
         assertTrue(testLatch.await(5, TimeUnit.SECONDS), "LoginView and MainWindow should instantiate successfully on JavaFX thread");
     }
+
+    @Test
+    public void testAdminManagementAndPharmacyMasterViews(@TempDir Path tempDir) throws Exception {
+        if (!jfxStarted) return;
+
+        DatabaseManager dbManager = new DatabaseManager(tempDir.toString());
+        dbManager.initializeClinicSchema();
+        ClinicDao clinicDao = new ClinicDao(dbManager);
+        MasterKnowledgeDao masterDao = new MasterKnowledgeDao(dbManager);
+        SecurityService securityService = new SecurityService();
+
+        CountDownLatch testLatch = new CountDownLatch(1);
+
+        Platform.runLater(() -> {
+            try {
+                // 1. Instantiate AdminManagementView
+                AdminManagementView adminView = new AdminManagementView(clinicDao, securityService);
+                assertNotNull(adminView);
+                assertNotNull(adminView.getTop());
+                assertNotNull(adminView.getCenter());
+
+                // 2. Instantiate PharmacyDispensaryView with Master Directory
+                PharmacyDispensaryView pharmacyView = new PharmacyDispensaryView(clinicDao, masterDao, securityService);
+                assertNotNull(pharmacyView);
+                assertNotNull(pharmacyView.getCenter());
+
+                // 3. Instantiate CaseTakingView
+                SymptomClipboard clipboard = new SymptomClipboard();
+                CaseTakingView caseView = new CaseTakingView(clinicDao, masterDao, clipboard);
+                assertNotNull(caseView);
+                assertNotNull(caseView.getTop());
+
+                testLatch.countDown();
+            } catch (Exception e) {
+                fail(e);
+            }
+        });
+
+        assertTrue(testLatch.await(5, TimeUnit.SECONDS), "AdminManagementView, PharmacyDispensaryView, and CaseTakingView should render without errors");
+    }
 }
