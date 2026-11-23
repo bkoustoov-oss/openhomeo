@@ -166,6 +166,16 @@ public class GuiComponentTest {
                 assertNotNull(caseView);
                 assertNotNull(caseView.getTop());
 
+                // 4. Instantiate MateriaMedicaView with independent autosuggestion & comparative differential matrix
+                MateriaMedicaView mmView = new MateriaMedicaView(masterDao, clinicDao);
+                assertNotNull(mmView);
+                assertNotNull(mmView.getTop());
+                assertNotNull(mmView.getCenter());
+
+                // Test independent selection
+                mmView.selectPrimaryRemedy("acon");
+                mmView.selectComparativeRemedy("bell");
+
                 testLatch.countDown();
             } catch (Exception e) {
                 fail(e);

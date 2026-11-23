@@ -71,6 +71,8 @@ public class CaseTakingView extends BorderPane {
     private EntryPointSuggestionEngine.SuggestedRemedy currentSuggestedRemedy = null;
 
     // Prescription Controls
+    private final List<Remedy> allPrescriptionRemedies = new ArrayList<>();
+    private final TextField remedySearchField;
     private final ComboBox<RemedyItem> remedyCombo;
     private final TextField potencyField;
     private final ComboBox<Prescription.PotencyScale> scaleCombo;
@@ -277,9 +279,17 @@ public class CaseTakingView extends BorderPane {
         prescGrid.setVgap(8);
         prescGrid.setPadding(new Insets(10));
 
+        remedySearchField = new TextField();
+        remedySearchField.setPromptText("🔍 Search remedy (e.g. bry, ars, neem)...");
+        remedySearchField.setPrefWidth(210);
+        remedySearchField.textProperty().addListener((obs, oldVal, newVal) -> filterPrescriptionRemedies(newVal));
+
         remedyCombo = new ComboBox<>();
         remedyCombo.setPromptText("Select Remedy...");
         remedyCombo.setPrefWidth(280);
+
+        HBox remedyBox = new HBox(6, remedySearchField, remedyCombo);
+        remedyBox.setAlignment(Pos.CENTER_LEFT);
 
         potencyField = new TextField("200");
         potencyField.setPrefWidth(80);
@@ -294,7 +304,7 @@ public class CaseTakingView extends BorderPane {
         repetitionField = new TextField("Single dose at bedtime, then placebo / SAC-LAC");
 
         prescGrid.add(new Label("Remedy:"), 0, 0);
-        prescGrid.add(remedyCombo, 1, 0);
+        prescGrid.add(remedyBox, 1, 0);
         prescGrid.add(new Label("Potency:"), 2, 0);
         prescGrid.add(potencyField, 3, 0);
 
@@ -393,19 +403,33 @@ public class CaseTakingView extends BorderPane {
             }
 
             // Load Remedies for Prescription
-            remedyCombo.getItems().clear();
-            for (Remedy r : masterDao.getAllRemedies()) {
-                remedyCombo.getItems().add(new RemedyItem(r));
-            }
-            if (!remedyCombo.getItems().isEmpty()) {
-                remedyCombo.getSelectionModel().select(0);
-            }
+            allPrescriptionRemedies.clear();
+            allPrescriptionRemedies.addAll(masterDao.getAllRemedies());
+            filterPrescriptionRemedies("");
 
             loadPatientHistory();
             loadPatientPastMedications();
             computeEntryPointSuggestions();
         } catch (Exception e) {
             log.error("Failed to load case taking initial data", e);
+        }
+    }
+
+    private void filterPrescriptionRemedies(String q) {
+        String filter = q != null ? q.trim().toLowerCase() : "";
+        remedyCombo.getItems().clear();
+        for (Remedy r : allPrescriptionRemedies) {
+            boolean match = filter.isEmpty()
+                    || r.id().toLowerCase().startsWith(filter)
+                    || r.abbr().toLowerCase().contains(filter)
+                    || r.fullName().toLowerCase().contains(filter)
+                    || (r.commonName() != null && r.commonName().toLowerCase().contains(filter));
+            if (match) {
+                remedyCombo.getItems().add(new RemedyItem(r));
+            }
+        }
+        if (!remedyCombo.getItems().isEmpty()) {
+            remedyCombo.getSelectionModel().select(0);
         }
     }
 
@@ -556,9 +580,13 @@ public class CaseTakingView extends BorderPane {
     private void acceptSuggestionToPrescription() {
         if (currentSuggestedRemedy == null) return;
 
+        remedySearchField.setText("");
+        filterPrescriptionRemedies("");
+
         // Select remedy in combo
         for (RemedyItem it : remedyCombo.getItems()) {
-            if (it.remedy.id().equalsIgnoreCase(currentSuggestedRemedy.remedyId())) {
+            if (it.remedy.id().equalsIgnoreCase(currentSuggestedRemedy.remedyId())
+                    || it.remedy.fullName().equalsIgnoreCase(currentSuggestedRemedy.remedyName())) {
                 remedyCombo.getSelectionModel().select(it);
                 break;
             }

@@ -122,7 +122,7 @@ public class MainWindow {
         Tab tabImage = new Tab("Clinical Photographs & CIE-LAB", imageViewer);
 
         // Tab 5: Materia Medica Library
-        mmView = new MateriaMedicaView(masterDao);
+        mmView = new MateriaMedicaView(masterDao, clinicDao);
         Tab tabMM = new Tab("Materia Medica Library", mmView);
 
         tabPane.getTabs().addAll(tabRep, tabCase, tabPharmacy, tabImage, tabMM);
