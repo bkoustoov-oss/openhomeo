@@ -33,9 +33,20 @@ public class NativeBridge {
 
     private static void tryLoadNative() {
         String libName = System.mapLibraryName("openhomeo_native");
-        File libFile = new File("native-core/target/release/" + libName);
-        if (!libFile.exists()) {
-            libFile = new File("native-core/target/debug/" + libName);
+        File[] candidates = new File[] {
+                new File("native-core/target/release/" + libName),
+                new File("../native-core/target/release/" + libName),
+                new File(System.getProperty("user.home") + File.separator + ".openhomeo" + File.separator + libName),
+                new File("native-core/target/debug/" + libName),
+                new File("../native-core/target/debug/" + libName)
+        };
+
+        File libFile = null;
+        for (File candidate : candidates) {
+            if (candidate.exists()) {
+                libFile = candidate;
+                break;
+            }
         }
 
         if (libFile.exists()) {

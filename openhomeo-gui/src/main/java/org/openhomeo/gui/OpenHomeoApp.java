@@ -12,7 +12,7 @@ import org.openhomeo.core.model.User;
 import org.openhomeo.core.repertory.RepertorizationEngine;
 import org.openhomeo.core.repertory.SymptomClipboard;
 import org.openhomeo.core.security.SecurityService;
-import org.openhomeo.gui.view.LoginDialog;
+import org.openhomeo.gui.view.LoginView;
 import org.openhomeo.gui.view.MainWindow;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -69,26 +69,38 @@ public class OpenHomeoApp extends Application {
         Application.setUserAgentStylesheet(new PrimerLight().getUserAgentStylesheet());
 
         primaryStage.setTitle("OpenHomeo Workstation - Professional Edition");
+        primaryStage.setWidth(1280);
+        primaryStage.setHeight(850);
         primaryStage.setMinWidth(1100);
         primaryStage.setMinHeight(750);
 
-        // Show Login first
-        LoginDialog loginDialog = new LoginDialog(clinicDao, securityService);
-        loginDialog.showAndWait().ifPresentOrElse(user -> {
+        showLoginScreen(primaryStage);
+
+        primaryStage.show();
+        primaryStage.toFront();
+        primaryStage.requestFocus();
+        log.info("OpenHomeo workstation window presented on desktop.");
+    }
+
+    private void showLoginScreen(Stage primaryStage) {
+        LoginView loginView = new LoginView(clinicDao, securityService, user -> {
             securityService.startSession(user);
             MainWindow mainWindow = new MainWindow(
                     primaryStage, masterDao, clinicDao, securityService,
-                    imageVault, symptomClipboard, repertorizationEngine
+                    imageVault, symptomClipboard, repertorizationEngine,
+                    () -> showLoginScreen(primaryStage)
             );
 
-            Scene scene = new Scene(mainWindow.getRoot(), 1280, 850);
-            primaryStage.setScene(scene);
-            primaryStage.show();
-            log.info("OpenHomeo workstation GUI launched successfully.");
-        }, () -> {
-            log.info("User cancelled login. Exiting.");
-            primaryStage.close();
+            primaryStage.getScene().setRoot(mainWindow.getRoot());
+            log.info("OpenHomeo workstation GUI unlocked and loaded main workspace.");
         });
+
+        if (primaryStage.getScene() == null) {
+            Scene scene = new Scene(loginView, 1280, 850);
+            primaryStage.setScene(scene);
+        } else {
+            primaryStage.getScene().setRoot(loginView);
+        }
     }
 
     public static void main(String[] args) {

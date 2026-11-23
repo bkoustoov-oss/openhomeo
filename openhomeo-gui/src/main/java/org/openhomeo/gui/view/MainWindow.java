@@ -36,6 +36,7 @@ public class MainWindow {
     private final ImageVaultService imageVault;
     private final SymptomClipboard clipboard;
     private final RepertorizationEngine engine;
+    private final Runnable onLogout;
 
     private final BorderPane root;
     private boolean isDarkMode = false;
@@ -57,6 +58,17 @@ public class MainWindow {
                       ImageVaultService imageVault,
                       SymptomClipboard clipboard,
                       RepertorizationEngine engine) {
+        this(stage, masterDao, clinicDao, securityService, imageVault, clipboard, engine, null);
+    }
+
+    public MainWindow(Stage stage,
+                      MasterKnowledgeDao masterDao,
+                      ClinicDao clinicDao,
+                      SecurityService securityService,
+                      ImageVaultService imageVault,
+                      SymptomClipboard clipboard,
+                      RepertorizationEngine engine,
+                      Runnable onLogout) {
         this.stage = stage;
         this.masterDao = masterDao;
         this.clinicDao = clinicDao;
@@ -64,6 +76,7 @@ public class MainWindow {
         this.imageVault = imageVault;
         this.clipboard = clipboard;
         this.engine = engine;
+        this.onLogout = onLogout;
 
         this.root = new BorderPane();
         initializeUI();
@@ -154,7 +167,17 @@ public class MainWindow {
         Label userLabel = new Label(userDisplay);
         userLabel.getStyleClass().add(Styles.TEXT_BOLD);
 
-        header.getChildren().addAll(brand, new Separator(), searchField, searchBtn, new Separator(), clipboardBadgeBox, spacer, userLabel, themeToggle);
+        Button lockBtn = new Button("Lock");
+        lockBtn.getStyleClass().add(Styles.BUTTON_OUTLINED);
+        lockBtn.setTooltip(new Tooltip("Lock clinic database and return to login screen"));
+        lockBtn.setOnAction(e -> {
+            securityService.clearSession();
+            if (onLogout != null) {
+                onLogout.run();
+            }
+        });
+
+        header.getChildren().addAll(brand, new Separator(), searchField, searchBtn, new Separator(), clipboardBadgeBox, spacer, userLabel, themeToggle, lockBtn);
         return header;
     }
 
