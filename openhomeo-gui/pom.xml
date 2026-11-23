@@ -61,7 +61,6 @@
                 <configuration>
                     <mainClass>org.openhomeo.gui.OpenHomeoApp</mainClass>
                     <options>
-                        <option>--enable-preview</option>
                         <option>--enable-native-access=ALL-UNNAMED</option>
                     </options>
                 </configuration>

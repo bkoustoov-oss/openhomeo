@@ -20,7 +20,7 @@
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <maven.compiler.release>21</maven.compiler.release>
+        <maven.compiler.release>24</maven.compiler.release>
         <javafx.version>21.0.6</javafx.version>
         <atlantafx.version>2.0.1</atlantafx.version>
         <sqlite.version>3.47.2.0</sqlite.version>
@@ -99,10 +99,7 @@
                     <artifactId>maven-compiler-plugin</artifactId>
                     <version>3.13.0</version>
                     <configuration>
-                        <release>21</release>
-                        <compilerArgs>
-                            <arg>--enable-preview</arg>
-                        </compilerArgs>
+                        <release>24</release>
                     </configuration>
                 </plugin>
                 <plugin>
@@ -110,7 +107,7 @@
                     <artifactId>maven-surefire-plugin</artifactId>
                     <version>3.5.2</version>
                     <configuration>
-                        <argLine>--enable-preview --enable-native-access=ALL-UNNAMED</argLine>
+                        <argLine>--enable-native-access=ALL-UNNAMED</argLine>
                     </configuration>
                 </plugin>
                 <plugin>
