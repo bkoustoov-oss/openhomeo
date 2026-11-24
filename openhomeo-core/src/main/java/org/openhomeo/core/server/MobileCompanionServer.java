@@ -56,7 +56,7 @@ public class MobileCompanionServer {
         this.objectMapper = new ObjectMapper();
 
         // Initialize default active session token for quick clinic testing
-        activeSessions.put("default-doc-token", new UserSession("doctor", "Dr. S. K. Mukherjee", "DOCTOR", Instant.now()));
+        activeSessions.put("default-doc-token", new UserSession("doctor", "Dr. Consulting Physician", "DOCTOR", Instant.now()));
         activeSessions.put("default-admin-token", new UserSession("admin", "System Administrator", "ADMIN", Instant.now()));
     }
 
@@ -178,10 +178,10 @@ public class MobileCompanionServer {
                     if ("admin123".equals(pin) || "ADMIN".equals(role)) {
                         session = new UserSession("admin", "System Administrator", "ADMIN", Instant.now());
                     } else if ("pharma123".equals(pin) || "PHARMACIST".equals(role)) {
-                        session = new UserSession("pharmacist", "A. K. Sharma", "PHARMACIST", Instant.now());
+                        session = new UserSession("pharmacist", "Dispensing Pharmacist", "PHARMACIST", Instant.now());
                     } else {
                         // Default Doctor PIN login (e.g. doctor123 or any doctor PIN)
-                        session = new UserSession("doctor", "Dr. S. K. Mukherjee", "DOCTOR", Instant.now());
+                        session = new UserSession("doctor", "Dr. Consulting Physician", "DOCTOR", Instant.now());
                     }
 
                     activeSessions.put(token, session);
@@ -260,7 +260,7 @@ public class MobileCompanionServer {
 
                     Patient p = clinicDao.createPatient(
                             caseNo, first, last, LocalDate.now().minusYears(30),
-                            gender, "Bedside Patient", "+91 9000000000", "", "Bedside Ward",
+                            gender, "Bedside Clinical Inpatient", "+91 00000 00000", "", "Bedside Facility Ward",
                             "O+", constType, miasm
                     );
                     Map<String, Object> m = Map.of(

@@ -48,8 +48,14 @@ public class MainWindow {
 
     private RepertoryMatrixView matrixView;
     private CaseTakingView caseTakingView;
+    private PatientDossierView patientDossierView;
+    private AiClinicalLogicChatView aiChatView;
     private ClinicalImageViewer imageViewer;
     private MateriaMedicaView mmView;
+    private TabPane mainTabPane;
+    private Tab tabCase;
+    private Tab tabDossier;
+    private Tab tabAiChat;
 
     private TextField searchField;
     private ListView<String> searchResultsList;
@@ -93,13 +99,9 @@ public class MainWindow {
     }
 
     private void initializeUI() {
-        // 1. Header Toolbar
-        HBox header = createHeader();
-        root.setTop(header);
-
-        // 2. Central TabPane
-        TabPane tabPane = new TabPane();
-        tabPane.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
+        // 1. Central TabPane
+        mainTabPane = new TabPane();
+        mainTabPane.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
 
         // Tab 1: Repertory Explorer & Matrix
         matrixView = new RepertoryMatrixView(masterDao, clipboard, engine);
@@ -116,26 +118,59 @@ public class MainWindow {
 
         // Tab 2: Case-Taking & Prescriptions
         caseTakingView = new CaseTakingView(clinicDao, masterDao, clipboard, imageVault);
-        Tab tabCase = new Tab("Clinical Case-Taking (L-S-M-C)", caseTakingView);
+        tabCase = new Tab("Clinical Case-Taking (L-S-M-C)", caseTakingView);
 
-        // Tab 3: Pharmacy Dispensary & Live Stock Register
+        // Tab 3: Comprehensive Patient Records & 360° Dossier
+        patientDossierView = new PatientDossierView(clinicDao, imageVault);
+        tabDossier = new Tab("👥 Patient Records & 360° Dossier", patientDossierView);
+
+        // Tab 4: Deterministic Classical Logic AI Chat
+        aiChatView = new AiClinicalLogicChatView(clinicDao, masterDao);
+        tabAiChat = new Tab("🧠 Clinical Logic AI Chat", aiChatView);
+
+        // Cross-wiring callbacks for smooth practitioner navigation:
+        patientDossierView.setOnConsultationRequested(patient -> {
+            caseTakingView.selectPatientById(patient.id());
+            mainTabPane.getSelectionModel().select(tabCase);
+        });
+
+        patientDossierView.setOnLogicAiChatRequested(patient -> {
+            aiChatView.selectPatient(patient.id());
+            mainTabPane.getSelectionModel().select(tabAiChat);
+        });
+
+        caseTakingView.setOnOpenDossierRequested(patient -> {
+            patientDossierView.selectPatient(patient.id());
+            mainTabPane.getSelectionModel().select(tabDossier);
+        });
+
+        caseTakingView.setOnOpenLogicAiRequested(patient -> {
+            aiChatView.selectPatient(patient.id());
+            mainTabPane.getSelectionModel().select(tabAiChat);
+        });
+
+        // Tab 5: Pharmacy Dispensary & Live Stock Register
         PharmacyDispensaryView pharmacyView = new PharmacyDispensaryView(clinicDao, masterDao, securityService);
         Tab tabPharmacy = new Tab("Pharmacy Dispensary & Stock Register", pharmacyView);
 
-        // Tab 4: Clinical Photos & Color Analysis
+        // Tab 6: Clinical Photos & Color Analysis
         imageViewer = new ClinicalImageViewer(clinicDao, imageVault);
         Tab tabImage = new Tab("Clinical Photographs & CIE-LAB", imageViewer);
 
-        // Tab 5: Materia Medica Library
+        // Tab 7: Materia Medica Library
         mmView = new MateriaMedicaView(masterDao, clinicDao);
         Tab tabMM = new Tab("Materia Medica Library", mmView);
 
-        tabPane.getTabs().addAll(tabRep, tabCase, tabPharmacy, tabImage, tabMM);
+        mainTabPane.getTabs().addAll(tabRep, tabCase, tabDossier, tabAiChat, tabPharmacy, tabImage, tabMM);
 
-        // Listen for tab changes to auto-refresh pharmacy inventory & dispatched orders/bills
-        tabPane.getSelectionModel().selectedItemProperty().addListener((obs, oldTab, newTab) -> {
+        // Listen for tab changes to auto-refresh data across modules
+        mainTabPane.getSelectionModel().selectedItemProperty().addListener((obs, oldTab, newTab) -> {
             if (newTab == tabPharmacy) {
                 pharmacyView.refreshAllData();
+            } else if (newTab == tabDossier) {
+                patientDossierView.refreshPatientList();
+            } else if (newTab == tabAiChat) {
+                aiChatView.refreshPatientContextList();
             }
         });
 
@@ -145,16 +180,19 @@ public class MainWindow {
             if (u.role() == User.UserRole.ADMIN) {
                 AdminManagementView adminView = new AdminManagementView(clinicDao, securityService);
                 Tab tabAdmin = new Tab("Admin Management", adminView);
-                tabPane.getTabs().add(tabAdmin);
-                tabPane.getSelectionModel().select(tabAdmin);
+                mainTabPane.getTabs().add(tabAdmin);
+                mainTabPane.getSelectionModel().select(tabAdmin);
             } else if (u.role() == User.UserRole.PHARMACIST) {
-                tabPane.getSelectionModel().select(tabPharmacy);
+                mainTabPane.getSelectionModel().select(tabPharmacy);
             } else if (u.role() == User.UserRole.DOCTOR || u.role() == User.UserRole.HOMEOPATH) {
-                tabPane.getSelectionModel().select(tabCase);
+                mainTabPane.getSelectionModel().select(tabCase);
             }
         }
 
-        root.setCenter(tabPane);
+        // Header Toolbar
+        HBox header = createHeader();
+        root.setTop(header);
+        root.setCenter(mainTabPane);
     }
 
     private HBox createHeader() {
@@ -201,6 +239,24 @@ public class MainWindow {
         userLabel.getStyleClass().add(Styles.TEXT_BOLD);
         userLabel.setStyle("-fx-background-color: #e0f2fe; -fx-text-fill: #0369a1; -fx-padding: 4 8 4 8; -fx-background-radius: 6px;");
 
+        Button navDossierBtn = new Button("👥 Patient Dossier");
+        navDossierBtn.getStyleClass().addAll(Styles.BUTTON_OUTLINED, Styles.SUCCESS);
+        navDossierBtn.setTooltip(new Tooltip("Jump directly to Patient Master Records, Longitudinal Dossier & In-App Prescriptions"));
+        navDossierBtn.setOnAction(e -> {
+            if (tabDossier != null && mainTabPane != null) {
+                mainTabPane.getSelectionModel().select(tabDossier);
+            }
+        });
+
+        Button navAiBtn = new Button("🧠 Logic AI");
+        navAiBtn.getStyleClass().addAll(Styles.BUTTON_OUTLINED, Styles.ACCENT);
+        navAiBtn.setTooltip(new Tooltip("Open Classical Homeopathic Logic AI Reasoner Chat"));
+        navAiBtn.setOnAction(e -> {
+            if (tabAiChat != null && mainTabPane != null) {
+                mainTabPane.getSelectionModel().select(tabAiChat);
+            }
+        });
+
         Button companionBtn = new Button("📱 Bedside Companion");
         companionBtn.getStyleClass().add(Styles.BUTTON_OUTLINED);
         companionBtn.setTooltip(new Tooltip("Launch Bedside Mobile & Tablet Companion Web Service on Local Wi-Fi"));
@@ -221,7 +277,7 @@ public class MainWindow {
             }
         });
 
-        header.getChildren().addAll(brand, new Separator(), searchField, searchBtn, new Separator(), clipboardBadgeBox, spacer, companionBtn, feedbackBtn, userLabel, themeToggle, lockBtn);
+        header.getChildren().addAll(brand, new Separator(), searchField, searchBtn, new Separator(), clipboardBadgeBox, spacer, navDossierBtn, navAiBtn, companionBtn, feedbackBtn, userLabel, themeToggle, lockBtn);
         return header;
     }
 

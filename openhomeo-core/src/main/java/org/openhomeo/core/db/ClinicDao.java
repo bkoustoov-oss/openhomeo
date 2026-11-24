@@ -1167,6 +1167,37 @@ public class ClinicDao {
         return list;
     }
 
+    public List<PharmacyBill> getBillsForPatient(String patientId) throws SQLException {
+        if (patientId == null || patientId.isBlank()) return List.of();
+        List<PharmacyBill> list = new ArrayList<>();
+        String sql = "SELECT * FROM pharmacy_bills WHERE patient_id = ? ORDER BY bill_date DESC";
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, patientId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    list.add(new PharmacyBill(
+                            rs.getString("id"),
+                            rs.getString("bill_number"),
+                            rs.getString("order_id"),
+                            rs.getString("patient_id"),
+                            rs.getString("patient_name"),
+                            rs.getString("doctor_name"),
+                            rs.getTimestamp("bill_date").toInstant(),
+                            rs.getDouble("subtotal_inr"),
+                            rs.getDouble("discount_inr"),
+                            rs.getDouble("gst_amount_inr"),
+                            rs.getDouble("total_inr"),
+                            rs.getString("payment_mode"),
+                            rs.getString("payment_status"),
+                            rs.getString("items_json")
+                    ));
+                }
+            }
+        }
+        return list;
+    }
+
     private MedicineInventoryItem mapInventoryItem(ResultSet rs) throws SQLException {
         String exp = rs.getString("expiry_date");
         return new MedicineInventoryItem(

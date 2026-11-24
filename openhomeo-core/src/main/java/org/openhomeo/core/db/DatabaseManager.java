@@ -487,11 +487,11 @@ public class DatabaseManager {
                 if (rs.next() && rs.getInt(1) == 0) {
                     stmt.execute("""
                         INSERT INTO doctors (id, full_name, registration_no, qualification, designation, clinic_name, address, phone, email, signature_notes, is_active)
-                        VALUES ('doc-default', 'Dr. S. K. Mukherjee', 'WBH-14285 / CCH-2018', 'B.H.M.S., M.D. (Homoeopathy)', 'Senior Consulting Homeopath',
-                                'Hahnemannian Classical Homeopathy Clinic', '12/A College Street, Kolkata, West Bengal - 700073', '+91 98300 12345', 'clinic@openhomeo.org',
+                        VALUES ('doc-default', 'Dr. Consulting Physician', 'REG-HOM-2026/01', 'B.H.M.S., M.D. (Homoeopathy)', 'Senior Consulting Homeopath',
+                                'Hahnemannian Classical Homeopathy Center', 'Clinical Facility Suite, Central Healthcare Campus', '+91 00000 00000', 'clinic@openhomeo.local',
                                 'Consulting Physician & Classical Prescriber', TRUE);
                     """);
-                    log.info("Initialized default consulting doctor: Dr. S. K. Mukherjee");
+                    log.info("Initialized default consulting doctor profile");
                 }
             }
 
@@ -500,10 +500,10 @@ public class DatabaseManager {
                 if (rs.next() && rs.getInt(1) == 0) {
                     stmt.execute("""
                         INSERT INTO pharmacists (id, full_name, registration_no, qualification, dispensary_name, address, phone, email, is_active)
-                        VALUES ('pharma-default', 'A. K. Sharma', 'WBCP-8921 / PH-2016', 'D.Pharm (Homoeopathy)', 'Central Clinic Dispensary',
-                                '12/A College Street, Kolkata, West Bengal - 700073', '+91 98311 54321', 'dispensary@openhomeo.org', TRUE);
+                        VALUES ('pharma-default', 'Dispensing Pharmacist', 'REG-PHARM-2026/01', 'D.Pharm (Homoeopathy)', 'Central Clinic Dispensary',
+                                'Clinical Facility Suite, Central Healthcare Campus', '+91 00000 00001', 'dispensary@openhomeo.local', TRUE);
                     """);
-                    log.info("Initialized default dispensing pharmacist: A. K. Sharma");
+                    log.info("Initialized default dispensing pharmacist profile");
                 }
             }
 
@@ -516,11 +516,11 @@ public class DatabaseManager {
                     """);
                     stmt.execute("""
                         INSERT INTO users (id, username, password_hash, full_name, role)
-                        VALUES ('usr-doc', 'doctor', 'doctor123', 'Dr. S. K. Mukherjee, M.D. (Hom.)', 'DOCTOR');
+                        VALUES ('usr-doc', 'doctor', 'doctor123', 'Dr. Consulting Physician, M.D. (Hom.)', 'DOCTOR');
                     """);
                     stmt.execute("""
                         INSERT INTO users (id, username, password_hash, full_name, role)
-                        VALUES ('usr-pharma', 'pharmacist', 'pharma123', 'A. K. Sharma, D.Pharm (Hom.)', 'PHARMACIST');
+                        VALUES ('usr-pharma', 'pharmacist', 'pharma123', 'Dispensing Pharmacist, D.Pharm', 'PHARMACIST');
                     """);
                     log.info("Initialized default RBAC users: admin, doctor, pharmacist");
                 }

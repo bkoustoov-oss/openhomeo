@@ -103,6 +103,32 @@ public class CaseTakingView extends BorderPane {
     private final Label baselineNotesLabel;
     private final ListView<PhotoTimelineItem> photoTimelineList;
 
+    private java.util.function.Consumer<Patient> onOpenDossierRequested;
+    private java.util.function.Consumer<Patient> onOpenLogicAiRequested;
+
+    public void setOnOpenDossierRequested(java.util.function.Consumer<Patient> listener) {
+        this.onOpenDossierRequested = listener;
+    }
+
+    public void setOnOpenLogicAiRequested(java.util.function.Consumer<Patient> listener) {
+        this.onOpenLogicAiRequested = listener;
+    }
+
+    public void selectPatientById(String patientId) {
+        if (patientId == null) return;
+        for (PatientItem item : patientCombo.getItems()) {
+            if (item.patient().id().equalsIgnoreCase(patientId)) {
+                patientCombo.getSelectionModel().select(item);
+                updatePatientDemographicsBanner(item.patient());
+                loadPatientHistory();
+                loadPatientPastMedications();
+                loadPhotographicTimeline(item.patient().id());
+                computeEntryPointSuggestions();
+                break;
+            }
+        }
+    }
+
     public record PatientItem(Patient patient) {
         @Override
         public String toString() {
@@ -187,6 +213,26 @@ public class CaseTakingView extends BorderPane {
         newPatBtn.getStyleClass().add(Styles.BUTTON_OUTLINED);
         newPatBtn.setOnAction(e -> showNewPatientDialog());
 
+        Button dossierBtn = new Button("👤 360° Dossier");
+        dossierBtn.getStyleClass().addAll(Styles.BUTTON_OUTLINED, Styles.SUCCESS);
+        dossierBtn.setTooltip(new Tooltip("Open comprehensive patient 360° dossier, longitudinal prescriptions, and billing ledger"));
+        dossierBtn.setOnAction(e -> {
+            PatientItem sel = patientCombo.getValue();
+            if (onOpenDossierRequested != null && sel != null) {
+                onOpenDossierRequested.accept(sel.patient());
+            }
+        });
+
+        Button logicAiBtn = new Button("🧠 Logic AI");
+        logicAiBtn.getStyleClass().addAll(Styles.BUTTON_OUTLINED, Styles.ACCENT);
+        logicAiBtn.setTooltip(new Tooltip("Open classical homeopathic logic AI reasoner for this patient"));
+        logicAiBtn.setOnAction(e -> {
+            PatientItem sel = patientCombo.getValue();
+            if (onOpenLogicAiRequested != null && sel != null) {
+                onOpenLogicAiRequested.accept(sel.patient());
+            }
+        });
+
         doctorCombo = new ComboBox<>();
         doctorCombo.setPromptText("Select Attending Doctor...");
         doctorCombo.setPrefWidth(300);
@@ -203,7 +249,7 @@ public class CaseTakingView extends BorderPane {
         statusLabel.getStyleClass().add(Styles.TEXT_MUTED);
 
         topBar.getChildren().addAll(
-                new Label("Patient:"), patientCombo, filterPatBtn, newPatBtn,
+                new Label("Patient:"), patientCombo, filterPatBtn, newPatBtn, dossierBtn, logicAiBtn,
                 new Label("Doctor:"), doctorCombo, manageDocsBtn, autoLanBtn,
                 statusLabel
         );

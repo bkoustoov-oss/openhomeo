@@ -109,7 +109,7 @@ public class MedicineConstituentsAndFaithDossierTest {
                 UUID.randomUUID().toString(),
                 "arn",
                 "usr-doc",
-                "Dr. S. K. Mukherjee",
+                "Dr. Consulting Physician",
                 "Clinical observation: Highly synergistic with Bellis perennis in deep pelvic hematoma post-caesarean.",
                 MedicineConstituentRemark.Status.PENDING,
                 null,
@@ -134,7 +134,7 @@ public class MedicineConstituentsAndFaithDossierTest {
         // 5. Verify remark is annexed into the main medicine constituent record with timestamp and user
         Optional<MedicineConstituent> updatedArn = clinicDao.getMedicineConstituent("arn");
         assertTrue(updatedArn.isPresent());
-        assertTrue(updatedArn.get().annexedRemarks().contains("Dr. S. K. Mukherjee"));
+        assertTrue(updatedArn.get().annexedRemarks().contains("Dr. Consulting Physician"));
         assertTrue(updatedArn.get().annexedRemarks().contains("Bellis perennis"));
     }
 
@@ -177,48 +177,48 @@ public class MedicineConstituentsAndFaithDossierTest {
 
     @Test
     void testFilteredPatientSearch() throws SQLException {
-        // Create diverse test patients
-        clinicDao.createPatient("CASE-001", "Aarav", "Patel", LocalDate.of(2018, 5, 12), "Male", "Student", "9990001111", "", "", "O+", "Carbonic", "PSORA");
-        clinicDao.createPatient("CASE-002", "Sunita", "Banerjee", LocalDate.of(1985, 3, 20), "Female", "Professor", "9990002222", "", "", "A+", "Phosphoric", "SYCOSIS");
-        clinicDao.createPatient("CASE-003", "Harish", "Chopra", LocalDate.of(1950, 11, 4), "Male", "Retired", "9990003333", "", "", "B+", "Fluoric", "SYPHILIS");
+        // Create diverse test patients with synthetic anonymized identifiers
+        clinicDao.createPatient("CASE-001", "Synthetic_Pediatric", "Subject_Alpha", LocalDate.of(2018, 5, 12), "Male", "Student", "0000000001", "", "", "O+", "Carbonic", "PSORA");
+        clinicDao.createPatient("CASE-002", "Synthetic_Adult", "Subject_Beta", LocalDate.of(1985, 3, 20), "Female", "Educator", "0000000002", "", "", "A+", "Phosphoric", "SYCOSIS");
+        clinicDao.createPatient("CASE-003", "Synthetic_Geriatric", "Subject_Gamma", LocalDate.of(1950, 11, 4), "Male", "Retired", "0000000003", "", "", "B+", "Fluoric", "SYPHILIS");
 
         // Filter by gender Female
         List<Patient> females = clinicDao.searchPatientsFiltered("", "ALL", "Female", "ALL", "ALL", "ALL");
         assertEquals(1, females.size());
-        assertEquals("Banerjee", females.get(0).lastName());
+        assertEquals("Subject_Beta", females.get(0).lastName());
 
         // Filter by pediatric age (< 12 yrs)
         List<Patient> peds = clinicDao.searchPatientsFiltered("", "ALL", "ALL", "Pediatric (< 12 yrs)", "ALL", "ALL");
         assertEquals(1, peds.size());
-        assertEquals("Aarav", peds.get(0).firstName());
+        assertEquals("Synthetic_Pediatric", peds.get(0).firstName());
 
         // Filter by Geriatric age (> 60 yrs)
         List<Patient> geriatrics = clinicDao.searchPatientsFiltered("", "ALL", "ALL", "Geriatric (> 60 yrs)", "ALL", "ALL");
         assertEquals(1, geriatrics.size());
-        assertEquals("Harish", geriatrics.get(0).firstName());
+        assertEquals("Synthetic_Geriatric", geriatrics.get(0).firstName());
 
         // Filter by Miasm SYCOSIS
         List<Patient> sycotic = clinicDao.searchPatientsFiltered("", "ALL", "ALL", "ALL", "ALL", "SYCOSIS");
         assertEquals(1, sycotic.size());
-        assertEquals("Sunita", sycotic.get(0).firstName());
+        assertEquals("Synthetic_Adult", sycotic.get(0).firstName());
     }
 
     @Test
     void testPharmacistAndUserManagement() throws SQLException {
         // Enlist Pharmacist
         Pharmacist p = new Pharmacist(
-                "pharma-new", "B. K. Sen", "PH-9912", "B.Pharm (Hom.)", "South Kolkata Branch Dispensary",
-                "Kolkata", "9830099999", "bksen@clinic.org", true, Instant.now()
+                "pharma-new", "TestPharmacist_User", "PH-9912", "B.Pharm (Hom.)", "Branch Clinic Dispensary",
+                "Healthcare Campus", "0000000000", "dispensary_test@clinic.local", true, Instant.now()
         );
         clinicDao.savePharmacist(p);
 
         Optional<Pharmacist> fetchedP = clinicDao.getPharmacistById("pharma-new");
         assertTrue(fetchedP.isPresent());
-        assertEquals("B. K. Sen", fetchedP.get().fullName());
+        assertEquals("TestPharmacist_User", fetchedP.get().fullName());
 
         // User management
-        User newUser = clinicDao.createUser("dr_roy", "royPass123", "Dr. B. C. Roy, M.D.", User.UserRole.DOCTOR);
-        assertEquals("dr_roy", newUser.username());
+        User newUser = clinicDao.createUser("dr_synthetic", "syntheticPass123", "Dr. Consulting Physician", User.UserRole.DOCTOR);
+        assertEquals("dr_synthetic", newUser.username());
         assertEquals(User.UserRole.DOCTOR, newUser.role());
 
         clinicDao.updateUserRole(newUser.id(), User.UserRole.ADMIN);

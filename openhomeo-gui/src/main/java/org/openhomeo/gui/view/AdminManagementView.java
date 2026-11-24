@@ -197,9 +197,9 @@ public class AdminManagementView extends BorderPane {
         grid.setPadding(new Insets(14));
 
         TextField txtName = new TextField();
-        txtName.setPromptText("Dr. S. K. Mukherjee");
+        txtName.setPromptText("Dr. Full Name");
         TextField txtReg = new TextField();
-        txtReg.setPromptText("CCH-2018 / WBH-14285");
+        txtReg.setPromptText("REG-CCH-2026/01");
         TextField txtQual = new TextField();
         txtQual.setPromptText("B.H.M.S., M.D. (Hom.)");
         TextField txtDesig = new TextField();
@@ -328,9 +328,9 @@ public class AdminManagementView extends BorderPane {
         grid.setPadding(new Insets(14));
 
         TextField txtName = new TextField();
-        txtName.setPromptText("A. K. Sharma");
+        txtName.setPromptText("Pharmacist Full Name");
         TextField txtReg = new TextField();
-        txtReg.setPromptText("WBCP-8921 / PH-2016");
+        txtReg.setPromptText("REG-PHARM-2026/01");
         TextField txtQual = new TextField();
         txtQual.setPromptText("D.Pharm (Homoeopathy)");
         TextField txtDisp = new TextField();

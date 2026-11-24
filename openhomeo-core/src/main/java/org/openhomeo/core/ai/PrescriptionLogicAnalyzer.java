@@ -46,6 +46,21 @@ public class PrescriptionLogicAnalyzer {
         INIMICAL_PAIRS.computeIfAbsent(remA.toLowerCase(), k -> new HashSet<>()).add(remB.toLowerCase());
     }
 
+    public static boolean isInimical(String remA, String remB) {
+        if (remA == null || remB == null) return false;
+        Set<String> set = INIMICAL_PAIRS.get(remA.toLowerCase());
+        return set != null && set.contains(remB.toLowerCase());
+    }
+
+    public static Set<String> getInimicals(String remId) {
+        if (remId == null) return Collections.emptySet();
+        return INIMICAL_PAIRS.getOrDefault(remId.toLowerCase(), Collections.emptySet());
+    }
+
+    public static Map<String, Set<String>> getAllInimicalPairs() {
+        return Collections.unmodifiableMap(INIMICAL_PAIRS);
+    }
+
     public record RuleCheck(
             String ruleCode,
             String ruleTitle,

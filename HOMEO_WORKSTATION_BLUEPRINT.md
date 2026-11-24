@@ -142,7 +142,7 @@ The user interface follows the information density standards of high-end clinica
 |                                  | Total Score:      |  7  | 11  |  7   | physically weak.             |
 |                                  | Rubric Count:     |  3  |  3  |  3   |                              |
 +----------------------------------+------------------------------------+------------------------------+
-| PATIENT WORKBENCH: John Doe (Case #412) | L-S-M-C Entry | [Color Image Viewer: Tongue / Lesion]       |
+| PATIENT WORKBENCH: Clinical EMR Record (Case #412) | L-S-M-C Entry | [Color Image Viewer: Tongue / Lesion]       |
 +------------------------------------------------------------------------------------------------------+
 ```
 

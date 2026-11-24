@@ -78,8 +78,8 @@ public class PharmacyAndInventoryTest {
         );
 
         PharmacyOrder order = new PharmacyOrder(
-                orderId, "ORD-TEST-001", "CONS-1", "PAT-1", "John Doe",
-                "DOC-1", "Dr. S. K. Mukherjee",
+                orderId, "ORD-TEST-001", "CONS-1", "PAT-1", "Synthetic_Subject_Delta",
+                "DOC-1", "Dr. Consulting Physician",
                 PharmacyOrder.OrderStatus.ORDERED, null, null, null,
                 Instant.now(), null, List.of(item)
         );
@@ -104,8 +104,8 @@ public class PharmacyAndInventoryTest {
         // Doctor accepts substitution
         clinicDao.updatePharmacyOrderStatus(
                 orderId, PharmacyOrder.OrderStatus.AGREED_SUBSTITUTION,
-                fetched.get().substitutionNotes() + " [Approved by Dr. Mukherjee]",
-                "Dr. S. K. Mukherjee", "A. K. Sharma"
+                fetched.get().substitutionNotes() + " [Approved by Consulting Physician]",
+                "Dr. Consulting Physician", "Dispensing Pharmacist"
         );
 
         fetched = clinicDao.getPharmacyOrderById(orderId);
@@ -128,19 +128,19 @@ public class PharmacyAndInventoryTest {
         assertFalse(reqs.isEmpty());
 
         // Doctor approves
-        clinicDao.updateReorderStatus(reqId, StockReorderRequest.ReorderStatus.APPROVED, "Dr. S. K. Mukherjee");
+        clinicDao.updateReorderStatus(reqId, StockReorderRequest.ReorderStatus.APPROVED, "Dr. Consulting Physician");
         StockReorderRequest updated = clinicDao.getAllReorderRequests().stream()
                 .filter(r -> r.id().equals(reqId))
                 .findFirst().orElseThrow();
         assertEquals(StockReorderRequest.ReorderStatus.APPROVED, updated.status());
-        assertEquals("Dr. S. K. Mukherjee", updated.approvedByUser());
+        assertEquals("Dr. Consulting Physician", updated.approvedByUser());
     }
 
     @Test
     public void testPharmacyBillingAndGst() throws Exception {
         PharmacyBill bill = new PharmacyBill(
                 UUID.randomUUID().toString(), "INV-TEST-001", "ORD-1",
-                "PAT-1", "Anita Roy", "Dr. S. K. Mukherjee",
+                "PAT-1", "Synthetic_Subject_Eta", "Dr. Consulting Physician",
                 Instant.now(), 500.0, 50.0, 22.50, 472.50,
                 "UPI / GPay / PhonePe", "PAID", "Arnica 200C, Syzygium Q"
         );
@@ -157,9 +157,9 @@ public class PharmacyAndInventoryTest {
     public void testPastMedicationAndRemedySupersedeAudit() throws Exception {
         // 0. Create patient
         Patient pat = clinicDao.createPatient(
-                "CASE-TEST-PM", "Test", "Patient",
-                LocalDate.of(1990, 1, 1), "Female", "Teacher",
-                "+91 98765 43210", "test@openhomeo.org", "Kolkata",
+                "CASE-TEST-PM", "Synthetic_Subject", "Test_Epsilon",
+                LocalDate.of(1990, 1, 1), "Female", "Educator",
+                "+91 00000 00000", "test@clinic.local", "Test Healthcare Facility",
                 "B+", "Phosphoric", "PSORA"
         );
 

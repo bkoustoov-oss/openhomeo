@@ -59,9 +59,9 @@ public class EndToEndClinicWorkflowTest {
 
         // 3. Register New Patient
         Patient patient = clinicDao.createPatient(
-                "CASE-P007", "Eleanor", "Vance",
-                LocalDate.of(1992, 8, 14), "Female", "Professor",
-                "+1-555-8822", "eleanor@hillhouse.org", "Hill House, MA",
+                "CASE-TEST-002", "Synthetic_Subject", "Test_Beta",
+                LocalDate.of(1992, 8, 14), "Female", "Educator",
+                "+91 00000 00000", "test@clinic.local", "Test Facility Premises",
                 "A+", "Phosphoric", "PSORA / TUBERCULAR"
         );
         assertNotNull(patient.id());

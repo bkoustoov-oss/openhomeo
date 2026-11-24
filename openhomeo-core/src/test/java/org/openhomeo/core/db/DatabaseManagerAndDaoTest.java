@@ -55,16 +55,16 @@ public class DatabaseManagerAndDaoTest {
 
         // 3. Patient Creation & Querying
         Patient p = clinicDao.createPatient(
-                "CASE-2026-001", "Arthur", "Conan",
-                LocalDate.of(1985, 5, 22), "Male", "Author",
-                "+1-555-0199", "arthur@example.com", "221B Baker St",
+                "CASE-TEST-001", "Synthetic_Subject", "Test_Alpha",
+                LocalDate.of(1985, 5, 22), "Male", "Researcher",
+                "+91 00000 00000", "test@clinic.local", "Test Facility Premises",
                 "O+", "Carbo-nitrogenoid", "PSORA / SYCOSIS"
         );
         assertNotNull(p.id());
 
-        List<Patient> patients = clinicDao.listPatients("Arthur");
+        List<Patient> patients = clinicDao.listPatients("Synthetic_Subject");
         assertEquals(1, patients.size());
-        assertEquals("CASE-2026-001", patients.get(0).caseNumber());
+        assertEquals("CASE-TEST-001", patients.get(0).caseNumber());
 
         // 4. Consultation & Prescriptions
         Consultation.SelectedRubric sr = new Consultation.SelectedRubric(

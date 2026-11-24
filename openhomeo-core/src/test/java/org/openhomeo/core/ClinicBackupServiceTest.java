@@ -52,10 +52,10 @@ public class ClinicBackupServiceTest {
     void testBackupCreationVerificationAndRestore() throws Exception {
         // 1. Create a patient
         Patient p = clinicDao.createPatient(
-                "CASE-TEST-001", "John", "Doe",
+                "CASE-TEST-001", "Synthetic_Subject", "Test_Gamma",
                 LocalDate.of(1985, 5, 20), "Male",
-                "Chronic headache", "+91 9876543210", "john@example.com",
-                "Kolkata", "O+", "Sycotic", "SYCOSIS"
+                "Chronic headache", "+91 00000 00000", "test@clinic.local",
+                "Test Healthcare Campus", "O+", "Sycotic", "SYCOSIS"
         );
         assertNotNull(p.id());
 
@@ -92,8 +92,8 @@ public class ClinicBackupServiceTest {
         // 6. Verify restored database has the patient back!
         List<Patient> restoredPatients = clinicDao.listPatients("");
         assertEquals(1, restoredPatients.size(), "Restored clinic should contain 1 patient");
-        assertEquals("John", restoredPatients.get(0).firstName());
-        assertEquals("Doe", restoredPatients.get(0).lastName());
+        assertEquals("Synthetic_Subject", restoredPatients.get(0).firstName());
+        assertEquals("Test_Gamma", restoredPatients.get(0).lastName());
         assertEquals("CASE-TEST-001", restoredPatients.get(0).caseNumber());
     }
 

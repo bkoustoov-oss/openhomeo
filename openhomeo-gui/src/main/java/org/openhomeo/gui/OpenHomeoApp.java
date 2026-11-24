@@ -64,14 +64,14 @@ public class OpenHomeoApp extends Application {
         if (clinicDao.findUserByUsername("doctor").isEmpty()) {
             String hash = securityService.hashPassword("doctor123");
             clinicDao.createUser(new User(
-                    UUID.randomUUID().toString(), "doctor", hash, "Dr. S. K. Mukherjee, M.D. (Hom.)", User.UserRole.DOCTOR, Instant.now()
+                    UUID.randomUUID().toString(), "doctor", hash, "Dr. Consulting Physician, M.D. (Hom.)", User.UserRole.DOCTOR, Instant.now()
             ));
             log.info("Created default doctor account: doctor / doctor123");
         }
         if (clinicDao.findUserByUsername("pharmacist").isEmpty()) {
             String hash = securityService.hashPassword("pharma123");
             clinicDao.createUser(new User(
-                    UUID.randomUUID().toString(), "pharmacist", hash, "A. K. Sharma, D.Pharm (Hom.)", User.UserRole.PHARMACIST, Instant.now()
+                    UUID.randomUUID().toString(), "pharmacist", hash, "Dispensing Pharmacist, D.Pharm", User.UserRole.PHARMACIST, Instant.now()
             ));
             log.info("Created default pharmacist account: pharmacist / pharma123");
         }

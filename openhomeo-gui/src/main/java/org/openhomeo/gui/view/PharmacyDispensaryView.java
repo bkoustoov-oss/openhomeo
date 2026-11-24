@@ -676,7 +676,7 @@ public class PharmacyDispensaryView extends BorderPane {
 
         TextField billNum = new TextField("INV-" + LocalDate.now().getYear() + "-" + (System.currentTimeMillis() % 10000));
         TextField patField = new TextField("Walk-In Patient / Case");
-        TextField docField = new TextField("Dr. S. K. Mukherjee, M.D. (Hom.)");
+        TextField docField = new TextField("Dr. Consulting Physician, M.D. (Hom.)");
         TextField subtotalField = new TextField("450.00");
         TextField discountField = new TextField("0.00");
 
