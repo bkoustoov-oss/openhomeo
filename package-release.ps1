@@ -23,6 +23,11 @@ New-Item -ItemType Directory -Path $winLib | Out-Null
 # Copy GUI Jar
 Copy-Item (Join-Path $rootDir "openhomeo-gui\target\openhomeo-gui-1.0.0-SNAPSHOT.jar") -Destination $winDir -Force
 
+# Copy Icon
+if (Test-Path (Join-Path $rootDir "openhomeo.ico")) {
+    Copy-Item (Join-Path $rootDir "openhomeo.ico") -Destination $winDir -Force
+}
+
 # Copy runtime dependencies (filtering out test-scoped jars)
 Get-ChildItem -Path (Join-Path $rootDir "openhomeo-gui\target\dependency\*.jar") | Where-Object {
     $_.Name -notmatch "junit" -and $_.Name -notmatch "opentest4j" -and $_.Name -notmatch "apiguardian"
@@ -47,7 +52,7 @@ echo ===========================================================================
 echo   OpenHomeo Classical Workstation v1.1.0 (Windows Portable)
 echo ================================================================================
 echo.
-java --enable-native-access=ALL-UNNAMED -cp "openhomeo-gui-1.0.0-SNAPSHOT.jar;lib/*" org.openhomeo.gui.OpenHomeoApp
+java --enable-native-access=ALL-UNNAMED -cp "openhomeo-gui-1.0.0-SNAPSHOT.jar;lib/*" org.openhomeo.gui.Main
 if %ERRORLEVEL% NEQ 0 (
     echo.
     echo [!] Application exited with code %ERRORLEVEL%.
@@ -65,9 +70,23 @@ Set-Location `$PSScriptRoot
 Write-Host "================================================================================" -ForegroundColor Cyan
 Write-Host "  Launching OpenHomeo Classical Workstation v1.1.0 (Windows Portable)          " -ForegroundColor Green
 Write-Host "================================================================================" -ForegroundColor Cyan
-java --enable-native-access=ALL-UNNAMED -cp "openhomeo-gui-1.0.0-SNAPSHOT.jar;lib/*" org.openhomeo.gui.OpenHomeoApp
+java --enable-native-access=ALL-UNNAMED -cp "openhomeo-gui-1.0.0-SNAPSHOT.jar;lib/*" org.openhomeo.gui.Main
 "@
 $psContent | Out-File -FilePath (Join-Path $winDir "run.ps1") -Encoding utf8
+
+# Create Shortcut Generator Script
+$shortcutScript = @'
+$wsh = New-Object -ComObject WScript.Shell
+$desktop = [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::Desktop)
+$shortcut = $wsh.CreateShortcut("$desktop\OpenHomeo Workstation.lnk")
+$shortcut.TargetPath = "$PSScriptRoot\openhomeo.bat"
+$shortcut.WorkingDirectory = $PSScriptRoot
+$shortcut.IconLocation = "$PSScriptRoot\openhomeo.ico,0"
+$shortcut.Description = "OpenHomeo - Classical Homeopathy Professional Workstation (FOSS)"
+$shortcut.Save()
+Write-Host "[+] Desktop shortcut with OpenHomeo icon created successfully!" -ForegroundColor Green
+'@
+$shortcutScript | Out-File -FilePath (Join-Path $winDir "create-desktop-shortcut.ps1") -Encoding utf8
 
 # Create Windows Readme
 $winReadme = @"
@@ -161,7 +180,7 @@ if command -v mvn &>/dev/null; then
     exec mvn javafx:run -pl openhomeo-gui
 else
     echo "[*] Launching via standalone Java runner..."
-    exec java --enable-native-access=ALL-UNNAMED -cp "openhomeo-gui-1.0.0-SNAPSHOT.jar:lib/*" org.openhomeo.gui.OpenHomeoApp
+    exec java --enable-native-access=ALL-UNNAMED -cp "openhomeo-gui-1.0.0-SNAPSHOT.jar:lib/*" org.openhomeo.gui.Main
 fi
 '@
 $macRunner | Out-File -FilePath (Join-Path $macDir "run-openhomeo.sh") -Encoding utf8

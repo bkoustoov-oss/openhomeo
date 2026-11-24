@@ -137,6 +137,19 @@ if (Test-Path "$installDir\openhomeo.bat") {
 }
 $shortcut.WorkingDirectory = $installDir
 $shortcut.Description = "OpenHomeo - Classical Homeopathy Professional Workstation (FOSS)"
+
+# Ensure branded icon is copied and set on shortcut
+$icoSrc = Join-Path $installDir "openhomeo.ico"
+if (-not (Test-Path $icoSrc)) {
+    $icoSub = Join-Path $installDir "openhomeo-gui\src\main\resources\icons\openhomeo.ico"
+    if (Test-Path $icoSub) {
+        Copy-Item $icoSub -Destination $icoSrc -Force
+    }
+}
+if (Test-Path $icoSrc) {
+    $shortcut.IconLocation = "$icoSrc,0"
+}
+
 $shortcut.Save()
 
 # 7. Create Start Script runner (run-openhomeo.cmd)
