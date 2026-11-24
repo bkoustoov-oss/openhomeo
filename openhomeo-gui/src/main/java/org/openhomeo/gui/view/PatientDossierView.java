@@ -23,6 +23,7 @@ import org.slf4j.LoggerFactory;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.sql.SQLException;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.Period;
 import java.time.ZoneId;
@@ -636,18 +637,57 @@ public class PatientDossierView extends BorderPane {
                 return;
             }
 
+            // Dynamic Institution Profile & Attending Doctor
+            ClinicInstitutionProfile inst;
+            try {
+                inst = clinicDao.getInstitutionProfile();
+            } catch (Exception ex) {
+                inst = ClinicInstitutionProfile.defaultProfile();
+            }
+
+            Doctor attendingDoctor = null;
+            if (sel.doctorId() != null && !sel.doctorId().isBlank()) {
+                try {
+                    attendingDoctor = clinicDao.getDoctorById(sel.doctorId()).orElse(null);
+                } catch (Exception ignored) {}
+            }
+            if (attendingDoctor == null) {
+                attendingDoctor = new Doctor(
+                        "doc-inst",
+                        inst.chiefConsultantName(),
+                        inst.chiefConsultantRegNo(),
+                        inst.chiefConsultantQualifications(),
+                        "Chief Consulting Homeopath",
+                        inst.institutionName(),
+                        inst.address(),
+                        inst.phone(),
+                        inst.email(),
+                        "Consulting Physician",
+                        true,
+                        Instant.now()
+                );
+            }
+
+            final Doctor finalAttendingDoctor = attendingDoctor;
+
             // Clinic Letterhead
             VBox headerBox = new VBox(3);
             headerBox.setAlignment(Pos.CENTER);
-            Label clinicTitle = new Label("HAHNEMANNIAN CLASSICAL HOMEOPATHIC CLINIC");
+            Label clinicTitle = new Label(inst.institutionName().toUpperCase());
             clinicTitle.setFont(Font.font("Georgia", FontWeight.BOLD, 17));
             clinicTitle.setStyle("-fx-text-fill: #0f172a;");
 
-            Label docSubtitle = new Label("Dr. Consulting Physician, B.H.M.S., M.D. (Homoeopathy) | Reg. No: REG-HOM-2026/01");
+            String docSubText = attendingDoctor.fullName() +
+                    (attendingDoctor.qualification() != null && !attendingDoctor.qualification().isBlank() ? ", " + attendingDoctor.qualification() : "") +
+                    (attendingDoctor.registrationNo() != null && !attendingDoctor.registrationNo().isBlank() ? " | Reg. No: " + attendingDoctor.registrationNo() : "");
+            Label docSubtitle = new Label(docSubText);
             docSubtitle.setFont(Font.font("System", FontWeight.NORMAL, 12));
             docSubtitle.setStyle("-fx-text-fill: #334155;");
 
-            Label addressSubtitle = new Label("Central Healthcare Facility Premises | Tel: +91 00000 00000 | clinic@openhomeo.local");
+            String addrSubText = inst.address() +
+                    (inst.phone() != null && !inst.phone().isBlank() ? " | Tel: " + inst.phone() : "") +
+                    (inst.email() != null && !inst.email().isBlank() ? " | " + inst.email() : "");
+            Label addressSubtitle = new Label(addrSubText);
             addressSubtitle.setFont(Font.font("System", FontWeight.NORMAL, 11));
             addressSubtitle.setStyle("-fx-text-fill: #64748b;");
 
@@ -719,7 +759,9 @@ public class PatientDossierView extends BorderPane {
             dietBox.setStyle("-fx-background-color: #fffbeb; -fx-padding: 8px 12px; -fx-border-color: #fde68a; -fx-border-radius: 4px;");
             Label dietTitle = new Label("Diet & Regimen Instructions:");
             dietTitle.setStyle("-fx-font-weight: bold; -fx-text-fill: #b45309; -fx-font-size: 11px;");
-            Label dietBody = new Label("• Avoid strong smelling substances (raw onion, garlic, menthol, camphor, eucalyptus, strong coffee) 30 mins before & after dose.\n• Take globules dry on a clean tongue or dissolved in fresh water as instructed.");
+            Label dietBody = new Label(inst.defaultRegimenInstructions() != null && !inst.defaultRegimenInstructions().isBlank()
+                    ? inst.defaultRegimenInstructions()
+                    : "• Avoid strong smelling substances (raw onion, garlic, menthol, camphor, eucalyptus, strong coffee) 30 mins before & after dose.\n• Take globules dry on a clean tongue or dissolved in fresh water as instructed.");
             dietBody.setStyle("-fx-text-fill: #78350f; -fx-font-size: 11px;");
             dietBox.getChildren().addAll(dietTitle, dietBody);
 
@@ -731,9 +773,13 @@ public class PatientDossierView extends BorderPane {
             sigBox.setAlignment(Pos.CENTER);
             Label sigLine = new Label("____________________________________");
             sigLine.setStyle("-fx-text-fill: #94a3b8;");
-            Label sigName = new Label("Dr. Consulting Physician, M.D. (Hom.)");
+            String sigDocText = attendingDoctor.fullName() +
+                    (attendingDoctor.qualification() != null && !attendingDoctor.qualification().isBlank() ? ", " + attendingDoctor.qualification() : "");
+            Label sigName = new Label(sigDocText);
             sigName.setStyle("-fx-font-weight: bold; -fx-text-fill: #0f172a; -fx-font-size: 11px;");
-            Label sigTitle2 = new Label("Consulting Homeopathic Physician");
+            Label sigTitle2 = new Label(attendingDoctor.designation() != null && !attendingDoctor.designation().isBlank()
+                    ? attendingDoctor.designation()
+                    : (attendingDoctor.registrationNo() != null && !attendingDoctor.registrationNo().isBlank() ? "Reg. No: " + attendingDoctor.registrationNo() : "Consulting Homeopathic Physician"));
             sigTitle2.setStyle("-fx-text-fill: #64748b; -fx-font-size: 10px;");
             sigBox.getChildren().addAll(sigLine, sigName, sigTitle2);
             footerBox.getChildren().add(sigBox);
@@ -751,14 +797,38 @@ public class PatientDossierView extends BorderPane {
             Consultation sel = consultCombo.getValue();
             if (sel == null) return;
             try {
-                Doctor doc = new Doctor(
-                        "doc-default", "Dr. Consulting Physician", "REG-HOM-2026/01",
-                        "B.H.M.S., M.D. (Homoeopathy)", "Senior Consulting Homeopath",
-                        "Hahnemannian Classical Homeopathy Center", "Clinical Facility Suite, Central Healthcare Campus",
-                        "+91 00000 00000", "clinic@openhomeo.local", "Consulting Physician", true, java.time.Instant.now()
-                );
+                ClinicInstitutionProfile instProfile;
+                try {
+                    instProfile = clinicDao.getInstitutionProfile();
+                } catch (Exception ex) {
+                    instProfile = ClinicInstitutionProfile.defaultProfile();
+                }
+
+                Doctor printDoctor = null;
+                if (sel.doctorId() != null && !sel.doctorId().isBlank()) {
+                    try {
+                        printDoctor = clinicDao.getDoctorById(sel.doctorId()).orElse(null);
+                    } catch (Exception ignored) {}
+                }
+                if (printDoctor == null) {
+                    printDoctor = new Doctor(
+                            "doc-inst",
+                            instProfile.chiefConsultantName(),
+                            instProfile.chiefConsultantRegNo(),
+                            instProfile.chiefConsultantQualifications(),
+                            "Chief Consulting Homeopath",
+                            instProfile.institutionName(),
+                            instProfile.address(),
+                            instProfile.phone(),
+                            instProfile.email(),
+                            "Consulting Physician",
+                            true,
+                            Instant.now()
+                    );
+                }
+
                 File out = new File(System.getProperty("user.home"), "OpenHomeo_Prescription_" + p.caseNumber() + ".pdf");
-                pdfService.generatePrescriptionPdf(doc, p, sel, true, out);
+                pdfService.generatePrescriptionPdf(printDoctor, instProfile, p, sel, Collections.emptyList(), true, out);
 
                 Alert a = new Alert(Alert.AlertType.INFORMATION);
                 a.setTitle("Prescription Exported");

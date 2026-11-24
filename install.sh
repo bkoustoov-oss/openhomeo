@@ -62,34 +62,58 @@ INSTALL_DIR="$HOME/.local/share/openhomeo"
 mkdir -p "$INSTALL_DIR"
 echo -e "[*] Installation path: ${INSTALL_DIR}"
 
-# 3. Clone / Update Repository
-if [ -d "$INSTALL_DIR/.git" ]; then
-    echo -e "${CYAN}[*] Updating existing OpenHomeo repository...${NC}"
-    git -C "$INSTALL_DIR" pull
-else
-    echo -e "${CYAN}[*] Cloning OpenHomeo from GitHub...${NC}"
-    git clone https://github.com/bkoustoov-oss/openhomeo.git "$INSTALL_DIR"
+# 3. Check for pre-compiled release package
+DOWNLOADED_RELEASE=false
+MAC_RELEASE_URL="https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.1.0/OpenHomeo-v1.1.0-macOS.tar.gz"
+
+if [ "$OS" = "Darwin" ]; then
+    echo -e "${CYAN}[*] Checking for OpenHomeo v1.1.0 macOS release package...${NC}"
+    if curl -fsSL --connect-timeout 10 "$MAC_RELEASE_URL" -o /tmp/openhomeo_mac.tar.gz 2>/dev/null; then
+        echo -e "${GREEN}[*] Extracting pre-compiled macOS package into ${INSTALL_DIR}...${NC}"
+        tar -xzf /tmp/openhomeo_mac.tar.gz -C "$INSTALL_DIR" --strip-components=1
+        DOWNLOADED_RELEASE=true
+        echo -e "${GREEN}[+] macOS package extracted successfully.${NC}"
+    fi
 fi
 
-# 4. Build Native Core and Java Workstation
-cd "$INSTALL_DIR"
-echo -e "${CYAN}[*] Compiling native Rust SIMD core...${NC}"
-cd "$INSTALL_DIR/native-core"
-cargo build --release
+if [ "$DOWNLOADED_RELEASE" = false ]; then
+    # Clone / Update Repository
+    if [ -d "$INSTALL_DIR/.git" ]; then
+        echo -e "${CYAN}[*] Updating existing OpenHomeo repository...${NC}"
+        git -C "$INSTALL_DIR" pull
+    else
+        echo -e "${CYAN}[*] Cloning OpenHomeo from GitHub...${NC}"
+        git clone https://github.com/bkoustoov-oss/openhomeo.git "$INSTALL_DIR"
+    fi
 
-echo -e "${CYAN}[*] Compiling OpenHomeo workstation with Maven...${NC}"
-cd "$INSTALL_DIR"
-mvn clean package -DskipTests
+    # 4. Build Native Core and Java Workstation
+    cd "$INSTALL_DIR"
+    if [ -d "$INSTALL_DIR/native-core" ] && command -v cargo &>/dev/null; then
+        echo -e "${CYAN}[*] Compiling native Rust SIMD core...${NC}"
+        cd "$INSTALL_DIR/native-core"
+        cargo build --release || true
+    fi
+
+    echo -e "${CYAN}[*] Compiling OpenHomeo workstation with Maven...${NC}"
+    cd "$INSTALL_DIR"
+    mvn clean package -DskipTests
+fi
 
 # 5. Create CLI Launcher
 BIN_DIR="$HOME/.local/bin"
 mkdir -p "$BIN_DIR"
 LAUNCHER="$BIN_DIR/openhomeo"
 
-cat << EOF > "$LAUNCHER"
+cat << 'EOF' > "$LAUNCHER"
 #!/usr/bin/env bash
+INSTALL_DIR="$HOME/.local/share/openhomeo"
 cd "$INSTALL_DIR"
-exec mvn javafx:run -pl openhomeo-gui
+if [ -f "$INSTALL_DIR/run-openhomeo.sh" ]; then
+    chmod +x "$INSTALL_DIR/run-openhomeo.sh"
+    exec "$INSTALL_DIR/run-openhomeo.sh"
+else
+    exec mvn javafx:run -pl openhomeo-gui
+fi
 EOF
 chmod +x "$LAUNCHER"
 

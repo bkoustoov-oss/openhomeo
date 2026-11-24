@@ -2,9 +2,12 @@ package org.openhomeo.core.pdf;
 
 import com.lowagie.text.*;
 import com.lowagie.text.Font;
+import com.lowagie.text.Rectangle;
 import com.lowagie.text.pdf.*;
+import org.openhomeo.core.model.ClinicInstitutionProfile;
 import org.openhomeo.core.model.Consultation;
 import org.openhomeo.core.model.Doctor;
+import org.openhomeo.core.model.PastMedication;
 import org.openhomeo.core.model.Patient;
 import org.openhomeo.core.model.Prescription;
 import org.slf4j.Logger;
@@ -15,12 +18,16 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.OutputStream;
 import java.time.LocalDate;
+import java.time.Period;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.Collections;
+import java.util.List;
 
 /**
  * Clinical PDF Generation Service for Homeopathic Prescriptions and Patient Case History.
- * Supports structured clinical layout with single-page Auto-Fit option.
+ * Supports structured clinical layout with single-page Auto-Fit option,
+ * dynamic clinic institution profile letterheads, and attending doctor credentials.
  */
 public class PrescriptionPdfService {
     private static final Logger log = LoggerFactory.getLogger(PrescriptionPdfService.class);
@@ -37,17 +44,27 @@ public class PrescriptionPdfService {
                                         Consultation consultation,
                                         boolean autoFitSinglePage,
                                         File outputFile) throws Exception {
-        generatePrescriptionPdf(doctor, patient, consultation, java.util.Collections.emptyList(), autoFitSinglePage, outputFile);
+        generatePrescriptionPdf(doctor, null, patient, consultation, Collections.emptyList(), autoFitSinglePage, outputFile);
     }
 
     public void generatePrescriptionPdf(Doctor doctor,
                                         Patient patient,
                                         Consultation consultation,
-                                        java.util.List<org.openhomeo.core.model.PastMedication> pastMedications,
+                                        List<PastMedication> pastMedications,
+                                        boolean autoFitSinglePage,
+                                        File outputFile) throws Exception {
+        generatePrescriptionPdf(doctor, null, patient, consultation, pastMedications, autoFitSinglePage, outputFile);
+    }
+
+    public void generatePrescriptionPdf(Doctor doctor,
+                                        ClinicInstitutionProfile institution,
+                                        Patient patient,
+                                        Consultation consultation,
+                                        List<PastMedication> pastMedications,
                                         boolean autoFitSinglePage,
                                         File outputFile) throws Exception {
         try (FileOutputStream fos = new FileOutputStream(outputFile)) {
-            generatePrescriptionPdf(doctor, patient, consultation, pastMedications, autoFitSinglePage, fos);
+            generatePrescriptionPdf(doctor, institution, patient, consultation, pastMedications, autoFitSinglePage, fos);
         }
     }
 
@@ -56,13 +73,23 @@ public class PrescriptionPdfService {
                                         Consultation consultation,
                                         boolean autoFitSinglePage,
                                         OutputStream outputStream) throws Exception {
-        generatePrescriptionPdf(doctor, patient, consultation, java.util.Collections.emptyList(), autoFitSinglePage, outputStream);
+        generatePrescriptionPdf(doctor, null, patient, consultation, Collections.emptyList(), autoFitSinglePage, outputStream);
     }
 
     public void generatePrescriptionPdf(Doctor doctor,
                                         Patient patient,
                                         Consultation consultation,
-                                        java.util.List<org.openhomeo.core.model.PastMedication> pastMedications,
+                                        List<PastMedication> pastMedications,
+                                        boolean autoFitSinglePage,
+                                        OutputStream outputStream) throws Exception {
+        generatePrescriptionPdf(doctor, null, patient, consultation, pastMedications, autoFitSinglePage, outputStream);
+    }
+
+    public void generatePrescriptionPdf(Doctor doctor,
+                                        ClinicInstitutionProfile institution,
+                                        Patient patient,
+                                        Consultation consultation,
+                                        List<PastMedication> pastMedications,
                                         boolean autoFitSinglePage,
                                         OutputStream outputStream) throws Exception {
 
@@ -100,22 +127,37 @@ public class PrescriptionPdfService {
         PdfPCell leftHeader = new PdfPCell();
         leftHeader.setBorder(Rectangle.NO_BORDER);
 
-        String clinicName = (doctor != null && doctor.clinicName() != null && !doctor.clinicName().isBlank())
-                ? doctor.clinicName() : "OPENHOMEO CLINICAL CENTRE";
+        String clinicName = (institution != null && institution.institutionName() != null && !institution.institutionName().isBlank())
+                ? institution.institutionName()
+                : ((doctor != null && doctor.clinicName() != null && !doctor.clinicName().isBlank())
+                ? doctor.clinicName() : "HAHNEMANNIAN CLASSICAL HOMEOPATHIC CLINIC");
         leftHeader.addElement(new Paragraph(clinicName.toUpperCase(), fontClinicTitle));
 
-        String docName = (doctor != null && doctor.fullName() != null)
-                ? doctor.fullName() : "Dr. Practitioner";
-        if (doctor != null && doctor.qualification() != null && !doctor.qualification().isBlank()) {
-            docName += ", " + doctor.qualification();
+        if (institution != null && institution.tagline() != null && !institution.tagline().isBlank()) {
+            leftHeader.addElement(new Paragraph(institution.tagline(), fontDocMeta));
+        }
+
+        String docName = (doctor != null && doctor.fullName() != null && !doctor.fullName().isBlank())
+                ? doctor.fullName()
+                : ((institution != null && institution.chiefConsultantName() != null && !institution.chiefConsultantName().isBlank())
+                ? institution.chiefConsultantName() : "Dr. Consulting Physician");
+        String docQual = (doctor != null && doctor.qualification() != null && !doctor.qualification().isBlank())
+                ? doctor.qualification()
+                : ((institution != null && institution.chiefConsultantQualifications() != null) ? institution.chiefConsultantQualifications() : "");
+        if (!docQual.isBlank()) {
+            docName += ", " + docQual;
         }
         leftHeader.addElement(new Paragraph(docName, fontDocName));
 
-        if (doctor != null && doctor.designation() != null && !doctor.designation().isBlank()) {
-            leftHeader.addElement(new Paragraph(doctor.designation(), fontDocMeta));
-        }
-        if (doctor != null && doctor.registrationNo() != null && !doctor.registrationNo().isBlank()) {
-            leftHeader.addElement(new Paragraph("Reg. No: " + doctor.registrationNo(), fontDocMeta));
+        String desig = (doctor != null && doctor.designation() != null && !doctor.designation().isBlank())
+                ? doctor.designation() : "Consulting Homeopathic Physician";
+        leftHeader.addElement(new Paragraph(desig, fontDocMeta));
+
+        String regNo = (doctor != null && doctor.registrationNo() != null && !doctor.registrationNo().isBlank())
+                ? doctor.registrationNo()
+                : ((institution != null && institution.chiefConsultantRegNo() != null) ? institution.chiefConsultantRegNo() : "");
+        if (!regNo.isBlank()) {
+            leftHeader.addElement(new Paragraph("Reg. No: " + regNo, fontDocMeta));
         }
         headerTable.addCell(leftHeader);
 
@@ -133,18 +175,24 @@ public class PrescriptionPdfService {
         pDate.setAlignment(Element.ALIGN_RIGHT);
         rightHeader.addElement(pDate);
 
-        if (doctor != null && doctor.address() != null && !doctor.address().isBlank()) {
-            Paragraph pAddr = new Paragraph(doctor.address(), fontDocMeta);
+        String addr = (institution != null && institution.address() != null && !institution.address().isBlank())
+                ? institution.address() : (doctor != null ? doctor.address() : "");
+        if (addr != null && !addr.isBlank()) {
+            Paragraph pAddr = new Paragraph(addr, fontDocMeta);
             pAddr.setAlignment(Element.ALIGN_RIGHT);
             rightHeader.addElement(pAddr);
         }
-        if (doctor != null && doctor.phone() != null && !doctor.phone().isBlank()) {
-            Paragraph pPhone = new Paragraph("Tel: " + doctor.phone(), fontDocMeta);
+        String phone = (institution != null && institution.phone() != null && !institution.phone().isBlank())
+                ? institution.phone() : (doctor != null ? doctor.phone() : "");
+        if (phone != null && !phone.isBlank()) {
+            Paragraph pPhone = new Paragraph("Tel: " + phone, fontDocMeta);
             pPhone.setAlignment(Element.ALIGN_RIGHT);
             rightHeader.addElement(pPhone);
         }
-        if (doctor != null && doctor.email() != null && !doctor.email().isBlank()) {
-            Paragraph pEmail = new Paragraph("Email: " + doctor.email(), fontDocMeta);
+        String email = (institution != null && institution.email() != null && !institution.email().isBlank())
+                ? institution.email() : (doctor != null ? doctor.email() : "");
+        if (email != null && !email.isBlank()) {
+            Paragraph pEmail = new Paragraph("Email: " + email, fontDocMeta);
             pEmail.setAlignment(Element.ALIGN_RIGHT);
             rightHeader.addElement(pEmail);
         }
@@ -168,114 +216,98 @@ public class PrescriptionPdfService {
         patientTable.setWidths(new float[]{30f, 25f, 25f, 20f});
         patientTable.setSpacingAfter(autoFitSinglePage ? 8f : 12f);
 
-        String patName = patient != null ? (patient.firstName() + " " + patient.lastName()).trim() : "Walk-in Patient";
-        String caseNo = patient != null ? patient.caseNumber() : "CASE-000";
-        String ageGender = (patient != null && patient.gender() != null ? patient.gender() : "-");
+        String patName = patient != null ? (patient.firstName() + " " + patient.lastName()).trim() : "Unknown Patient";
+        int age = 0;
         if (patient != null && patient.dob() != null) {
-            int age = java.time.Period.between(patient.dob(), LocalDate.now()).getYears();
-            ageGender = age + " Yrs / " + ageGender;
+            age = Period.between(patient.dob(), LocalDate.now()).getYears();
         }
-        String phone = patient != null && patient.phone() != null ? patient.phone() : "-";
+        String gender = patient != null && patient.gender() != null ? patient.gender() : "—";
+        String caseNo = patient != null && patient.caseNumber() != null ? patient.caseNumber() : "—";
+        String contact = patient != null && patient.phone() != null ? patient.phone() : "—";
 
         addInfoCell(patientTable, "Patient Name:", patName, fontLabel, fontValue);
         addInfoCell(patientTable, "Case No:", caseNo, fontLabel, fontValue);
-        addInfoCell(patientTable, "Age / Gender:", ageGender, fontLabel, fontValue);
-        addInfoCell(patientTable, "Phone:", phone, fontLabel, fontValue);
-
-        if (patient != null && patient.constitutionalType() != null && !patient.constitutionalType().isBlank()) {
-            addInfoCell(patientTable, "Constitution:", patient.constitutionalType(), fontLabel, fontValue);
-            addInfoCell(patientTable, "Miasm:", patient.miasmaticBackground() != null ? patient.miasmaticBackground() : "PSORA", fontLabel, fontValue);
-        }
+        addInfoCell(patientTable, "Age / Gender:", age + " yrs / " + gender, fontLabel, fontValue);
+        addInfoCell(patientTable, "Phone:", contact, fontLabel, fontValue);
 
         document.add(patientTable);
 
-        // 3. Clinical Case-Taking & Symptoms Summary
-        if (consultation != null) {
-            Paragraph pClinicalHead = new Paragraph("CLINICAL EVALUATION & CASE ANALYSIS (L-S-M-C)", fontSectionHeader);
-            pClinicalHead.setSpacingAfter(autoFitSinglePage ? 3f : 6f);
-            document.add(pClinicalHead);
+        // 3. Clinical Presentation / Diagnosis Section
+        if (consultation != null && consultation.chiefComplaint() != null && !consultation.chiefComplaint().isBlank()) {
+            PdfPTable diagTable = new PdfPTable(1);
+            diagTable.setWidthPercentage(100);
+            diagTable.setSpacingAfter(autoFitSinglePage ? 6f : 10f);
 
-            PdfPTable caseTable = new PdfPTable(2);
-            caseTable.setWidthPercentage(100);
-            caseTable.setWidths(new float[]{50f, 50f});
-            caseTable.setSpacingAfter(autoFitSinglePage ? 8f : 12f);
+            PdfPCell diagCell = new PdfPCell();
+            diagCell.setBackgroundColor(BG_LIGHT);
+            diagCell.setBorderColor(BORDER_COLOR);
+            diagCell.setPadding(6f);
 
-            // Chief Complaint
-            String cc = consultation.chiefComplaint() != null && !consultation.chiefComplaint().isBlank()
-                    ? consultation.chiefComplaint() : "Not recorded";
-            addFullWidthRow(caseTable, "Chief Complaint:", cc, fontLabel, fontValue);
+            Paragraph pDiag = new Paragraph();
+            pDiag.add(new Chunk("Clinical Presentation / Diagnosis: ", fontLabel));
+            pDiag.add(new Chunk(consultation.chiefComplaint(), fontValue));
+            diagCell.addElement(pDiag);
 
-            // Location & Sensation
-            String loc = consultation.locationNotes() != null && !consultation.locationNotes().isBlank() ? consultation.locationNotes() : "-";
-            String sens = consultation.sensationNotes() != null && !consultation.sensationNotes().isBlank() ? consultation.sensationNotes() : "-";
-            addInfoCell(caseTable, "Location (L):", loc, fontLabel, fontValue);
-            addInfoCell(caseTable, "Sensation (S):", sens, fontLabel, fontValue);
-
-            // Modalities & Concomitants
-            String mod = consultation.modalityNotes() != null && !consultation.modalityNotes().isBlank() ? consultation.modalityNotes() : "-";
-            String conc = consultation.concomitantNotes() != null && !consultation.concomitantNotes().isBlank() ? consultation.concomitantNotes() : "-";
-            addInfoCell(caseTable, "Modalities (< / >):", mod, fontLabel, fontValue);
-            addInfoCell(caseTable, "Concomitants (C):", conc, fontLabel, fontValue);
-
-            // Mind & Physical Generals
-            String mind = consultation.mindDisposition() != null && !consultation.mindDisposition().isBlank() ? consultation.mindDisposition() : "-";
-            String phys = consultation.physicalGenerals() != null && !consultation.physicalGenerals().isBlank() ? consultation.physicalGenerals() : "-";
-            addInfoCell(caseTable, "Mind & Dispositions:", mind, fontLabel, fontValue);
-            addInfoCell(caseTable, "Physical Generals:", phys, fontLabel, fontValue);
-
-            // Earlier Medications & Suppressions if present
-            if (pastMedications != null && !pastMedications.isEmpty()) {
-                StringBuilder pastMedStr = new StringBuilder();
-                for (org.openhomeo.core.model.PastMedication pm : pastMedications) {
-                    if (!pastMedStr.isEmpty()) pastMedStr.append(" | ");
-                    pastMedStr.append(pm.drugName()).append(" (").append(pm.category()).append(", ").append(pm.duration()).append(")");
-                    if (pm.suppressedSymptoms() != null && !pm.suppressedSymptoms().isBlank()) {
-                        pastMedStr.append(" -> Suppressed: ").append(pm.suppressedSymptoms());
-                    }
-                }
-                addFullWidthRow(caseTable, "Earlier Medications & Suppressions:", pastMedStr.toString(), fontLabel, fontValue);
-            }
-
-            // Analyzed Rubrics if present
-            if (consultation.selectedRubrics() != null && !consultation.selectedRubrics().isEmpty()) {
-                StringBuilder rubricsStr = new StringBuilder();
-                for (Consultation.SelectedRubric sr : consultation.selectedRubrics()) {
-                    if (!rubricsStr.isEmpty()) rubricsStr.append("; ");
-                    rubricsStr.append(sr.fullPath());
-                    if (sr.isEliminative()) rubricsStr.append(" [ELIMINATIVE]");
-                }
-                addFullWidthRow(caseTable, "Analyzed Rubrics:", rubricsStr.toString(), fontLabel, fontValue);
-            }
-
-            document.add(caseTable);
+            diagTable.addCell(diagCell);
+            document.add(diagTable);
         }
 
-        // 4. Rx Prescription Box
-        Paragraph pRxHead = new Paragraph("PRESCRIPTION (℞)", fontSectionHeader);
-        pRxHead.setSpacingAfter(autoFitSinglePage ? 4f : 8f);
-        document.add(pRxHead);
+        // 3b. Past Medications & Suppression Warnings (if any)
+        if (pastMedications != null && !pastMedications.isEmpty()) {
+            PdfPTable pastMedTable = new PdfPTable(1);
+            pastMedTable.setWidthPercentage(100);
+            pastMedTable.setSpacingAfter(autoFitSinglePage ? 6f : 10f);
 
+            PdfPCell pastMedCell = new PdfPCell();
+            pastMedCell.setBackgroundColor(new Color(254, 242, 242)); // Red-50
+            pastMedCell.setBorderColor(new Color(254, 202, 202));     // Red-200
+            pastMedCell.setPadding(6f);
+
+            Paragraph pHeader = new Paragraph("Recorded Drug Suppressions & Allopathic History:", fontLabel);
+            pastMedCell.addElement(pHeader);
+
+            StringBuilder sb = new StringBuilder();
+            for (PastMedication pm : pastMedications) {
+                sb.append("• ").append(pm.drugName());
+                if (pm.category() != null && !pm.category().isBlank()) {
+                    sb.append(" (").append(pm.category()).append(")");
+                }
+                if (pm.suppressedSymptoms() != null && !pm.suppressedSymptoms().isBlank()) {
+                    sb.append(" — Suppression noted: ").append(pm.suppressedSymptoms());
+                }
+                sb.append("\n");
+            }
+            Paragraph pList = new Paragraph(sb.toString().trim(), fontRemedyMeta);
+            pastMedCell.addElement(pList);
+
+            pastMedTable.addCell(pastMedCell);
+            document.add(pastMedTable);
+        }
+
+        // 4. Rx Symbol & Prescriptions Table
         PdfPTable rxTable = new PdfPTable(1);
         rxTable.setWidthPercentage(100);
-        rxTable.setSpacingAfter(autoFitSinglePage ? 8f : 14f);
+        rxTable.setSpacingAfter(autoFitSinglePage ? 10f : 14f);
 
         PdfPCell rxCell = new PdfPCell();
         rxCell.setBackgroundColor(RX_BG);
         rxCell.setBorderColor(PRIMARY_COLOR);
         rxCell.setBorderWidth(1.2f);
-        rxCell.setPadding(autoFitSinglePage ? 6f : 10f);
+        rxCell.setPadding(autoFitSinglePage ? 8f : 12f);
 
-        Paragraph pRxSymbol = new Paragraph("℞", fontRxSymbol);
-        pRxSymbol.setSpacingAfter(autoFitSinglePage ? 2f : 4f);
-        rxCell.addElement(pRxSymbol);
+        Paragraph pRx = new Paragraph("℞", fontRxSymbol);
+        pRx.setSpacingAfter(4f);
+        rxCell.addElement(pRx);
 
         if (consultation != null && consultation.prescriptions() != null && !consultation.prescriptions().isEmpty()) {
+            int itemNo = 1;
             for (Prescription p : consultation.prescriptions()) {
-                String line = String.format("%s  %s (%s)", p.remedyName(), p.potency(), p.scale().name());
-                Paragraph pRem = new Paragraph(line, fontRemedyName);
-                rxCell.addElement(pRem);
+                String remedyHeader = String.format("%d. %s  —  Potency: %s (%s)",
+                        itemNo++, p.remedyName(), p.potency(), p.scale());
+                Paragraph pRemedy = new Paragraph(remedyHeader, fontRemedyName);
+                rxCell.addElement(pRemedy);
 
-                String posology = "Directions: " + p.posologyInstructions();
+                String posology = "   Posology: " + (p.posologyInstructions() != null ? p.posologyInstructions() : "As directed");
                 if (p.repetitionFrequency() != null && !p.repetitionFrequency().isBlank()) {
                     posology += " | Frequency: " + p.repetitionFrequency();
                 }
@@ -289,7 +321,10 @@ public class PrescriptionPdfService {
         }
 
         // Dietary & regimen instructions
-        Paragraph pDiet = new Paragraph("Regimen: Avoid strong coffee, raw onion, garlic, menthol, camphor. Store medicine away from strong odors and direct sunlight.", fontMuted);
+        String regimenStr = (institution != null && institution.defaultRegimenInstructions() != null && !institution.defaultRegimenInstructions().isBlank())
+                ? institution.defaultRegimenInstructions()
+                : "Regimen: Avoid strong coffee, raw onion, garlic, menthol, camphor. Store medicine away from strong odors and direct sunlight.";
+        Paragraph pDiet = new Paragraph(regimenStr, fontMuted);
         rxCell.addElement(pDiet);
 
         rxTable.addCell(rxCell);
@@ -322,13 +357,25 @@ public class PrescriptionPdfService {
         pSigLine.setAlignment(Element.ALIGN_RIGHT);
         rightFoot.addElement(pSigLine);
 
-        String signDoc = (doctor != null && doctor.fullName() != null) ? doctor.fullName() : "Attending Physician";
+        String signDoc = (doctor != null && doctor.fullName() != null && !doctor.fullName().isBlank())
+                ? doctor.fullName()
+                : ((institution != null && institution.chiefConsultantName() != null && !institution.chiefConsultantName().isBlank())
+                ? institution.chiefConsultantName() : "Attending Physician");
+        String signQual = (doctor != null && doctor.qualification() != null && !doctor.qualification().isBlank())
+                ? doctor.qualification()
+                : ((institution != null && institution.chiefConsultantQualifications() != null) ? institution.chiefConsultantQualifications() : "");
+        if (!signQual.isBlank()) {
+            signDoc += ", " + signQual;
+        }
         Paragraph pDocSign = new Paragraph(signDoc, fontDocName);
         pDocSign.setAlignment(Element.ALIGN_RIGHT);
         rightFoot.addElement(pDocSign);
 
-        if (doctor != null && doctor.registrationNo() != null && !doctor.registrationNo().isBlank()) {
-            Paragraph pReg = new Paragraph("Reg. No: " + doctor.registrationNo(), fontDocMeta);
+        String sigReg = (doctor != null && doctor.registrationNo() != null && !doctor.registrationNo().isBlank())
+                ? doctor.registrationNo()
+                : ((institution != null && institution.chiefConsultantRegNo() != null) ? institution.chiefConsultantRegNo() : "");
+        if (!sigReg.isBlank()) {
+            Paragraph pReg = new Paragraph("Reg. No: " + sigReg, fontDocMeta);
             pReg.setAlignment(Element.ALIGN_RIGHT);
             rightFoot.addElement(pReg);
         }
@@ -348,26 +395,13 @@ public class PrescriptionPdfService {
         PdfPCell cell = new PdfPCell();
         cell.setBackgroundColor(BG_LIGHT);
         cell.setBorderColor(BORDER_COLOR);
-        cell.setPadding(4f);
+        cell.setPadding(5f);
 
         Paragraph p = new Paragraph();
         p.add(new Chunk(label + " ", fontLabel));
-        p.add(new Chunk(value, fontValue));
+        p.add(new Chunk(value != null ? value : "—", fontValue));
         cell.addElement(p);
-        table.addCell(cell);
-    }
 
-    private void addFullWidthRow(PdfPTable table, String label, String value, Font fontLabel, Font fontValue) {
-        PdfPCell cell = new PdfPCell();
-        cell.setColspan(table.getNumberOfColumns());
-        cell.setBackgroundColor(BG_LIGHT);
-        cell.setBorderColor(BORDER_COLOR);
-        cell.setPadding(4f);
-
-        Paragraph p = new Paragraph();
-        p.add(new Chunk(label + " ", fontLabel));
-        p.add(new Chunk(value, fontValue));
-        cell.addElement(p);
         table.addCell(cell);
     }
 }

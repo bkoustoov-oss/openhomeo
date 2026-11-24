@@ -14,6 +14,19 @@ OpenHomeo is a modern, high-performance, privacy-first desktop workstation desig
 
 ---
 
+## 📦 Pre-Compiled Standalone Releases (v1.1.0)
+
+For users who want to run OpenHomeo without installing developer toolchains (Maven / Cargo):
+
+| Platform | Download Package | Launch Instructions |
+| :--- | :--- | :--- |
+| **Windows 10 / 11** | [**OpenHomeo-v1.1.0-Windows.zip**](https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.1.0/OpenHomeo-v1.1.0-Windows.zip) | Extract zip and double-click `openhomeo.bat` or `run.ps1` |
+| **macOS (Apple Silicon & Intel)** | [**OpenHomeo-v1.1.0-macOS.tar.gz**](https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.1.0/OpenHomeo-v1.1.0-macOS.tar.gz) / [**.zip**](https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.1.0/OpenHomeo-v1.1.0-macOS.zip) | Extract archive and run `./run-openhomeo.sh` |
+
+*Requirements: Java 21 LTS or newer ([Download OpenJDK 21 LTS](https://adoptium.net/temurin/releases/?version=21)).*
+
+---
+
 ## ⚡ Instant 1-Line Universal Installers
 
 ### Windows 10 / 11 (PowerShell)

@@ -64,6 +64,29 @@ public class AdminManagementView extends BorderPane {
     private TableView<AdminFaithDossierEntry> faithTable;
     private TableView<MedicineConstituentRemark> remarksTable;
 
+    // Institution Profile Controls
+    private TextField txtInstName;
+    private TextField txtInstTagline;
+    private TextField txtInstRegNo;
+    private TextField txtInstAddress;
+    private TextField txtInstPhone;
+    private TextField txtInstEmail;
+    private TextField txtInstWebsite;
+    private ComboBox<String> cmbInstCurrency;
+    private TextField txtInstChiefDoc;
+    private TextField txtInstChiefQual;
+    private TextField txtInstChiefRegNo;
+    private TextArea txtInstRegimen;
+
+    // Live Letterhead Preview Labels
+    private Label lblPreviewTitle;
+    private Label lblPreviewTagline;
+    private Label lblPreviewDoc;
+    private Label lblPreviewContact;
+    private Label lblPreviewRegimen;
+    private Label lblPreviewSigName;
+    private Label lblPreviewSigTitle;
+
     private Label statusLabel;
 
     public AdminManagementView(ClinicDao clinicDao, SecurityService securityService) {
@@ -81,6 +104,7 @@ public class AdminManagementView extends BorderPane {
         TabPane adminTabs = new TabPane();
         adminTabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
 
+        Tab tabInstitution = new Tab("🏛️ Clinic & Institution Registration", createInstitutionRegistrationPane());
         Tab tabDoctors = new Tab("🩺 Enlisted Doctors", createDoctorsPane());
         Tab tabPharmacists = new Tab("💊 Enlisted Pharmacists", createPharmacistsPane());
         Tab tabUsers = new Tab("👥 User Accounts & RBAC", createUsersPane());
@@ -91,7 +115,7 @@ public class AdminManagementView extends BorderPane {
         Tab tabProving = new Tab("🧪 Community Proving Ingestion", createProvingIngestionPane());
         Tab tabBackup = new Tab("☁️ Backup & Google Drive Sync", createBackupAndGoogleDrivePane());
 
-        adminTabs.getTabs().addAll(tabDoctors, tabPharmacists, tabUsers, tabFaith, tabRemarks, tabNetwork, tabOta, tabProving, tabBackup);
+        adminTabs.getTabs().addAll(tabInstitution, tabDoctors, tabPharmacists, tabUsers, tabFaith, tabRemarks, tabNetwork, tabOta, tabProving, tabBackup);
         setCenter(adminTabs);
 
         refreshAllData();
@@ -123,6 +147,293 @@ public class AdminManagementView extends BorderPane {
     }
 
     // =========================================================================
+    // 0. CLINIC & INSTITUTION REGISTRATION PANE
+    // =========================================================================
+    private Node createInstitutionRegistrationPane() {
+        BorderPane root = new BorderPane();
+        root.setPadding(new Insets(14));
+
+        // Header Intro
+        VBox header = new VBox(4);
+        header.setPadding(new Insets(0, 0, 14, 0));
+        Label title = new Label("🏛️ Clinic & Institution Registration Profile");
+        title.setFont(Font.font("Segoe UI", FontWeight.BOLD, 16));
+        Label desc = new Label(
+                "Register your official clinic or hospital institution details, council accreditation, credentials, and default regimen rules. " +
+                "All patient prescription slips, case summaries, and exported PDF documents dynamically reflect this master letterhead."
+        );
+        desc.setWrapText(true);
+        desc.getStyleClass().add(Styles.TEXT_MUTED);
+        header.getChildren().addAll(title, desc);
+        root.setTop(header);
+
+        // Split Layout: Left Form + Right Live Letterhead Preview
+        SplitPane splitPane = new SplitPane();
+        splitPane.setDividerPositions(0.55);
+
+        // --- Left Form ---
+        VBox formBox = new VBox(14);
+        formBox.setPadding(new Insets(10, 16, 10, 10));
+
+        txtInstName = new TextField();
+        txtInstName.setPromptText("e.g., Hahnemannian Classical Homeopathic Clinic");
+        txtInstTagline = new TextField();
+        txtInstTagline.setPromptText("e.g., Advanced Classical Posology & Miasmatic Practice");
+        txtInstRegNo = new TextField();
+        txtInstRegNo.setPromptText("e.g., REG-CLINIC-2026/01");
+        txtInstAddress = new TextField();
+        txtInstAddress.setPromptText("e.g., Central Healthcare Facility Premises, Medical Enclave");
+        txtInstPhone = new TextField();
+        txtInstPhone.setPromptText("e.g., +91 00000 00000");
+        txtInstEmail = new TextField();
+        txtInstEmail.setPromptText("e.g., clinic@openhomeo.local");
+        txtInstWebsite = new TextField();
+        txtInstWebsite.setPromptText("e.g., https://openhomeo.org");
+
+        cmbInstCurrency = new ComboBox<>(FXCollections.observableArrayList(
+                "INR (₹)", "USD ($)", "EUR (€)", "GBP (£)", "AUD ($)", "CAD ($)"
+        ));
+        cmbInstCurrency.setValue("INR (₹)");
+
+        txtInstChiefDoc = new TextField();
+        txtInstChiefDoc.setPromptText("e.g., Dr. Consulting Physician");
+        txtInstChiefQual = new TextField();
+        txtInstChiefQual.setPromptText("e.g., B.H.M.S., M.D. (Homoeopathy)");
+        txtInstChiefRegNo = new TextField();
+        txtInstChiefRegNo.setPromptText("e.g., REG-HOM-2026/01");
+
+        txtInstRegimen = new TextArea();
+        txtInstRegimen.setPrefRowCount(4);
+        txtInstRegimen.setWrapText(true);
+        txtInstRegimen.setPromptText("Default dietary prohibitions and intake rules printed on prescription slips...");
+
+        // Section 1: Facility Identity
+        Label sec1 = new Label("🏥 Institution & Healthcare Facility Identity");
+        sec1.setFont(Font.font("Segoe UI", FontWeight.BOLD, 13));
+        GridPane grid1 = new GridPane();
+        grid1.setHgap(10);
+        grid1.setVgap(8);
+        grid1.addRow(0, new Label("Institution Name:"), txtInstName);
+        grid1.addRow(1, new Label("Tagline / Clinical Focus:"), txtInstTagline);
+        grid1.addRow(2, new Label("Clinical Registration No:"), txtInstRegNo);
+        grid1.addRow(3, new Label("Premises Address:"), txtInstAddress);
+        grid1.addRow(4, new Label("Helpline Phone:"), txtInstPhone);
+        grid1.addRow(5, new Label("Official Email:"), txtInstEmail);
+        grid1.addRow(6, new Label("Website / Portal:"), txtInstWebsite);
+        grid1.addRow(7, new Label("Billing Currency:"), cmbInstCurrency);
+
+        // Section 2: Chief Consultant Credentials
+        Label sec2 = new Label("🩺 Chief Medical Director / Senior Consultant");
+        sec2.setFont(Font.font("Segoe UI", FontWeight.BOLD, 13));
+        GridPane grid2 = new GridPane();
+        grid2.setHgap(10);
+        grid2.setVgap(8);
+        grid2.addRow(0, new Label("Chief Physician Name:"), txtInstChiefDoc);
+        grid2.addRow(1, new Label("Academic Qualifications:"), txtInstChiefQual);
+        grid2.addRow(2, new Label("Medical Council Reg No:"), txtInstChiefRegNo);
+
+        // Section 3: Diet & Posological Regimen
+        Label sec3 = new Label("📜 Master Posological Regimen & Dietary Prohibitions");
+        sec3.setFont(Font.font("Segoe UI", FontWeight.BOLD, 13));
+
+        // Action Buttons
+        HBox btnBox = new HBox(12);
+        btnBox.setAlignment(Pos.CENTER_LEFT);
+        btnBox.setPadding(new Insets(10, 0, 0, 0));
+
+        Button btnSaveInst = new Button("💾 Save & Register Institution Profile");
+        btnSaveInst.getStyleClass().addAll(Styles.BUTTON_OUTLINED, Styles.SUCCESS);
+        btnSaveInst.setOnAction(e -> saveInstitutionProfile());
+
+        Button btnReset = new Button("↺ Reset to Saved Profile");
+        btnReset.setOnAction(e -> refreshInstitutionProfile());
+
+        btnBox.getChildren().addAll(btnSaveInst, btnReset);
+
+        formBox.getChildren().addAll(sec1, grid1, new Separator(), sec2, grid2, new Separator(), sec3, txtInstRegimen, btnBox);
+        ScrollPane formScroll = new ScrollPane(formBox);
+        formScroll.setFitToWidth(true);
+
+        // --- Right: Live Letterhead & Prescription Preview ---
+        VBox previewWrapper = new VBox(10);
+        previewWrapper.setPadding(new Insets(10));
+        previewWrapper.setAlignment(Pos.TOP_CENTER);
+
+        Label prevHeader = new Label("📄 Live Letterhead & Prescription Header Preview");
+        prevHeader.setFont(Font.font("Segoe UI", FontWeight.BOLD, 13));
+
+        VBox previewCard = new VBox(6);
+        previewCard.setStyle("-fx-background-color: #ffffff; -fx-padding: 16px; -fx-border-color: #cbd5e1; -fx-border-radius: 6px; -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.08), 8, 0, 0, 2);");
+        previewCard.setMaxWidth(480);
+
+        lblPreviewTitle = new Label("HAHNEMANNIAN CLASSICAL HOMEOPATHIC CLINIC");
+        lblPreviewTitle.setFont(Font.font("Georgia", FontWeight.BOLD, 15));
+        lblPreviewTitle.setStyle("-fx-text-fill: #0f172a;");
+        lblPreviewTitle.setAlignment(Pos.CENTER);
+
+        lblPreviewTagline = new Label("Advanced Classical Posology & Miasmatic Practice");
+        lblPreviewTagline.setFont(Font.font("System", FontWeight.NORMAL, 10));
+        lblPreviewTagline.setStyle("-fx-text-fill: #64748b; -fx-font-style: italic;");
+        lblPreviewTagline.setAlignment(Pos.CENTER);
+
+        lblPreviewDoc = new Label("Dr. Consulting Physician, B.H.M.S., M.D. (Hom.) | Reg. No: REG-HOM-2026/01");
+        lblPreviewDoc.setFont(Font.font("System", FontWeight.NORMAL, 11));
+        lblPreviewDoc.setStyle("-fx-text-fill: #334155;");
+        lblPreviewDoc.setAlignment(Pos.CENTER);
+
+        lblPreviewContact = new Label("Central Healthcare Facility Premises | Tel: +91 00000 00000 | clinic@openhomeo.local");
+        lblPreviewContact.setFont(Font.font("System", FontWeight.NORMAL, 10));
+        lblPreviewContact.setStyle("-fx-text-fill: #64748b;");
+        lblPreviewContact.setAlignment(Pos.CENTER);
+
+        VBox headCenter = new VBox(2, lblPreviewTitle, lblPreviewTagline, lblPreviewDoc, lblPreviewContact);
+        headCenter.setAlignment(Pos.CENTER);
+
+        Separator slipLine = new Separator();
+        slipLine.setStyle("-fx-background-color: #0284c7;");
+
+        Label mockPat = new Label("Patient: Sample Patient  |  Case: CASE-001  |  Age/Sex: 35 yrs / Male  |  Date: Today");
+        mockPat.setStyle("-fx-font-size: 10px; -fx-text-fill: #475569; -fx-padding: 4px 0;");
+
+        Label mockDiag = new Label("Clinical Presentation / Diagnosis: Chronic Gastric Dyspepsia with Migraine");
+        mockDiag.setStyle("-fx-font-size: 10px; -fx-font-weight: bold; -fx-text-fill: #0369a1;");
+
+        Label mockRx = new Label("℞\n1. Nux vomica — Potency: 200 (CENTESIMAL)\n   Posology: 4 pills dry on clean tongue | Repetition: Single dose at bedtime");
+        mockRx.setStyle("-fx-font-size: 11px; -fx-text-fill: #0f172a;");
+
+        VBox regimenBox = new VBox(2);
+        regimenBox.setStyle("-fx-background-color: #fffbeb; -fx-padding: 6px 8px; -fx-border-color: #fde68a; -fx-border-radius: 4px;");
+        Label regTitle = new Label("Diet & Regimen Instructions:");
+        regTitle.setStyle("-fx-font-weight: bold; -fx-text-fill: #b45309; -fx-font-size: 10px;");
+        lblPreviewRegimen = new Label("• Avoid strong smelling substances 30 mins before & after dose.\n• Take globules dry on a clean tongue.");
+        lblPreviewRegimen.setStyle("-fx-text-fill: #78350f; -fx-font-size: 10px;");
+        lblPreviewRegimen.setWrapText(true);
+        regimenBox.getChildren().addAll(regTitle, lblPreviewRegimen);
+
+        VBox sigBox = new VBox(1);
+        sigBox.setAlignment(Pos.BOTTOM_RIGHT);
+        Label sigLine = new Label("____________________________");
+        sigLine.setStyle("-fx-text-fill: #94a3b8;");
+        lblPreviewSigName = new Label("Dr. Consulting Physician, M.D. (Hom.)");
+        lblPreviewSigName.setStyle("-fx-font-weight: bold; -fx-text-fill: #0f172a; -fx-font-size: 10px;");
+        lblPreviewSigTitle = new Label("Consulting Homeopathic Physician");
+        lblPreviewSigTitle.setStyle("-fx-text-fill: #64748b; -fx-font-size: 9px;");
+        sigBox.getChildren().addAll(sigLine, lblPreviewSigName, lblPreviewSigTitle);
+
+        previewCard.getChildren().addAll(headCenter, slipLine, mockPat, mockDiag, mockRx, regimenBox, sigBox);
+        ScrollPane prevScroll = new ScrollPane(new VBox(10, prevHeader, previewCard));
+        prevScroll.setFitToWidth(true);
+
+        splitPane.getItems().addAll(formScroll, prevScroll);
+        root.setCenter(splitPane);
+
+        // Attach listeners for live preview update
+        txtInstName.textProperty().addListener((obs, o, n) -> updateInstitutionPreview());
+        txtInstTagline.textProperty().addListener((obs, o, n) -> updateInstitutionPreview());
+        txtInstRegNo.textProperty().addListener((obs, o, n) -> updateInstitutionPreview());
+        txtInstAddress.textProperty().addListener((obs, o, n) -> updateInstitutionPreview());
+        txtInstPhone.textProperty().addListener((obs, o, n) -> updateInstitutionPreview());
+        txtInstEmail.textProperty().addListener((obs, o, n) -> updateInstitutionPreview());
+        txtInstChiefDoc.textProperty().addListener((obs, o, n) -> updateInstitutionPreview());
+        txtInstChiefQual.textProperty().addListener((obs, o, n) -> updateInstitutionPreview());
+        txtInstChiefRegNo.textProperty().addListener((obs, o, n) -> updateInstitutionPreview());
+        txtInstRegimen.textProperty().addListener((obs, o, n) -> updateInstitutionPreview());
+
+        refreshInstitutionProfile();
+        return root;
+    }
+
+    private void updateInstitutionPreview() {
+        if (lblPreviewTitle == null) return;
+        String name = txtInstName.getText().trim();
+        lblPreviewTitle.setText(name.isEmpty() ? "CLINIC / INSTITUTION NAME" : name.toUpperCase());
+
+        String tag = txtInstTagline.getText().trim();
+        lblPreviewTagline.setText(tag);
+        lblPreviewTagline.setVisible(!tag.isEmpty());
+        lblPreviewTagline.setManaged(!tag.isEmpty());
+
+        String doc = txtInstChiefDoc.getText().trim();
+        String qual = txtInstChiefQual.getText().trim();
+        String reg = txtInstChiefRegNo.getText().trim();
+        String docLine = (doc.isEmpty() ? "Dr. Consulting Physician" : doc) +
+                (qual.isEmpty() ? "" : ", " + qual) +
+                (reg.isEmpty() ? "" : " | Reg. No: " + reg);
+        lblPreviewDoc.setText(docLine);
+
+        String addr = txtInstAddress.getText().trim();
+        String phone = txtInstPhone.getText().trim();
+        String email = txtInstEmail.getText().trim();
+        String contactLine = (addr.isEmpty() ? "Clinical Facility Address" : addr) +
+                (phone.isEmpty() ? "" : " | Tel: " + phone) +
+                (email.isEmpty() ? "" : " | " + email);
+        lblPreviewContact.setText(contactLine);
+
+        String regimen = txtInstRegimen.getText().trim();
+        lblPreviewRegimen.setText(regimen.isEmpty()
+                ? "• Avoid strong smelling substances 30 mins before & after dose.\n• Take globules dry on a clean tongue."
+                : regimen);
+
+        lblPreviewSigName.setText((doc.isEmpty() ? "Dr. Consulting Physician" : doc) + (qual.isEmpty() ? "" : ", " + qual));
+        lblPreviewSigTitle.setText(reg.isEmpty() ? "Consulting Homeopathic Physician" : "Reg. No: " + reg);
+    }
+
+    private void refreshInstitutionProfile() {
+        try {
+            ClinicInstitutionProfile inst = clinicDao.getInstitutionProfile();
+            if (txtInstName != null) {
+                txtInstName.setText(inst.institutionName());
+                txtInstTagline.setText(inst.tagline());
+                txtInstRegNo.setText(inst.registrationNumber());
+                txtInstAddress.setText(inst.address());
+                txtInstPhone.setText(inst.phone());
+                txtInstEmail.setText(inst.email());
+                txtInstWebsite.setText(inst.website());
+                cmbInstCurrency.setValue(inst.defaultCurrency());
+                txtInstChiefDoc.setText(inst.chiefConsultantName());
+                txtInstChiefQual.setText(inst.chiefConsultantQualifications());
+                txtInstChiefRegNo.setText(inst.chiefConsultantRegNo());
+                txtInstRegimen.setText(inst.defaultRegimenInstructions());
+                updateInstitutionPreview();
+            }
+        } catch (SQLException e) {
+            log.error("Failed to load institution profile", e);
+        }
+    }
+
+    private void saveInstitutionProfile() {
+        try {
+            String name = txtInstName.getText().trim();
+            if (name.isEmpty()) {
+                showError("Institution name cannot be blank.");
+                return;
+            }
+            ClinicInstitutionProfile updated = new ClinicInstitutionProfile(
+                    "inst-default",
+                    name,
+                    txtInstTagline.getText().trim(),
+                    txtInstRegNo.getText().trim(),
+                    txtInstAddress.getText().trim(),
+                    txtInstPhone.getText().trim(),
+                    txtInstEmail.getText().trim(),
+                    txtInstWebsite.getText().trim(),
+                    txtInstChiefDoc.getText().trim(),
+                    txtInstChiefQual.getText().trim(),
+                    txtInstChiefRegNo.getText().trim(),
+                    cmbInstCurrency.getValue() != null ? cmbInstCurrency.getValue() : "INR (₹)",
+                    txtInstRegimen.getText().trim(),
+                    Instant.now()
+            );
+            clinicDao.saveInstitutionProfile(updated);
+            updateInstitutionPreview();
+            showNotification("Institution Profile registered and updated successfully!");
+        } catch (SQLException e) {
+            log.error("Failed to save institution profile", e);
+            showError("Failed to save institution profile: " + e.getMessage());
+        }
+    }
+
+    // =========================================================================
     // 1. ENLISTED DOCTORS PANE
     // =========================================================================
     private Node createDoctorsPane() {
@@ -136,6 +447,41 @@ public class AdminManagementView extends BorderPane {
         Button btnAdd = new Button("➕ Enlist New Doctor");
         btnAdd.getStyleClass().addAll(Styles.BUTTON_OUTLINED, Styles.SUCCESS);
         btnAdd.setOnAction(e -> showAddDoctorDialog());
+
+        Button btnEdit = new Button("✏️ Edit Doctor");
+        btnEdit.setOnAction(e -> {
+            Doctor selected = doctorsTable.getSelectionModel().getSelectedItem();
+            if (selected == null) {
+                showError("Please select a doctor from the table to edit.");
+                return;
+            }
+            showEditDoctorDialog(selected);
+        });
+
+        Button btnDelete = new Button("🗑️ Remove Doctor");
+        btnDelete.getStyleClass().addAll(Styles.BUTTON_OUTLINED, Styles.DANGER);
+        btnDelete.setOnAction(e -> {
+            Doctor selected = doctorsTable.getSelectionModel().getSelectedItem();
+            if (selected == null) {
+                showError("Please select a doctor to remove.");
+                return;
+            }
+            Alert alert = new Alert(Alert.AlertType.CONFIRMATION,
+                    "Are you sure you want to remove Dr. " + selected.fullName() + " from the clinic roster?",
+                    ButtonType.YES, ButtonType.NO);
+            alert.setHeaderText("Confirm Doctor Deletion");
+            alert.showAndWait().ifPresent(res -> {
+                if (res == ButtonType.YES) {
+                    try {
+                        clinicDao.deleteDoctor(selected.id());
+                        refreshDoctors();
+                        showNotification("Doctor removed from clinic roster: " + selected.fullName());
+                    } catch (SQLException ex) {
+                        showError("Failed to delete doctor: " + ex.getMessage());
+                    }
+                }
+            });
+        });
 
         Button btnToggle = new Button("Toggle Active Status");
         btnToggle.setOnAction(e -> {
@@ -157,7 +503,7 @@ public class AdminManagementView extends BorderPane {
             }
         });
 
-        toolbar.getChildren().addAll(btnAdd, btnToggle);
+        toolbar.getChildren().addAll(btnAdd, btnEdit, btnDelete, btnToggle);
         pane.setTop(toolbar);
 
         doctorsTable = new TableView<>(doctorsList);
@@ -254,6 +600,73 @@ public class AdminManagementView extends BorderPane {
         });
     }
 
+    private void showEditDoctorDialog(Doctor doc) {
+        Dialog<Doctor> dialog = new Dialog<>();
+        dialog.setTitle("Edit Doctor Credentials & Practice Details");
+        dialog.setHeaderText("Modify official council credentials for Dr. " + doc.fullName());
+
+        GridPane grid = new GridPane();
+        grid.setHgap(10);
+        grid.setVgap(10);
+        grid.setPadding(new Insets(14));
+
+        TextField txtName = new TextField(doc.fullName());
+        TextField txtReg = new TextField(doc.registrationNo());
+        TextField txtQual = new TextField(doc.qualification());
+        TextField txtDesig = new TextField(doc.designation());
+        TextField txtClinic = new TextField(doc.clinicName());
+        TextField txtAddr = new TextField(doc.address());
+        TextField txtPhone = new TextField(doc.phone());
+        TextField txtEmail = new TextField(doc.email());
+        TextField txtNotes = new TextField(doc.signatureNotes() != null ? doc.signatureNotes() : "");
+        CheckBox chkActive = new CheckBox("Active Practice Status");
+        chkActive.setSelected(doc.isActive());
+
+        grid.addRow(0, new Label("Doctor Full Name:"), txtName);
+        grid.addRow(1, new Label("Registration / Council No:"), txtReg);
+        grid.addRow(2, new Label("Qualifications (e.g., B.H.M.S., M.D.):"), txtQual);
+        grid.addRow(3, new Label("Designation / Practice Title:"), txtDesig);
+        grid.addRow(4, new Label("Clinic / Institute Name:"), txtClinic);
+        grid.addRow(5, new Label("Clinic Address:"), txtAddr);
+        grid.addRow(6, new Label("Contact Phone:"), txtPhone);
+        grid.addRow(7, new Label("Email Address:"), txtEmail);
+        grid.addRow(8, new Label("Prescription Signature Note:"), txtNotes);
+        grid.addRow(9, new Label("Status:"), chkActive);
+
+        dialog.getDialogPane().setContent(grid);
+        dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+
+        dialog.setResultConverter(btn -> {
+            if (btn == ButtonType.OK && !txtName.getText().trim().isEmpty()) {
+                return new Doctor(
+                        doc.id(),
+                        txtName.getText().trim(),
+                        txtReg.getText().trim(),
+                        txtQual.getText().trim(),
+                        txtDesig.getText().trim(),
+                        txtClinic.getText().trim(),
+                        txtAddr.getText().trim(),
+                        txtPhone.getText().trim(),
+                        txtEmail.getText().trim(),
+                        txtNotes.getText().trim(),
+                        chkActive.isSelected(),
+                        doc.createdAt()
+                );
+            }
+            return null;
+        });
+
+        dialog.showAndWait().ifPresent(updated -> {
+            try {
+                clinicDao.updateDoctor(updated);
+                refreshDoctors();
+                showNotification("Updated details for Dr. " + updated.fullName());
+            } catch (SQLException ex) {
+                showError("Failed to update doctor: " + ex.getMessage());
+            }
+        });
+    }
+
     // =========================================================================
     // 2. ENLISTED PHARMACISTS PANE
     // =========================================================================
@@ -268,6 +681,41 @@ public class AdminManagementView extends BorderPane {
         Button btnAdd = new Button("➕ Enlist New Pharmacist");
         btnAdd.getStyleClass().addAll(Styles.BUTTON_OUTLINED, Styles.SUCCESS);
         btnAdd.setOnAction(e -> showAddPharmacistDialog());
+
+        Button btnEdit = new Button("✏️ Edit Pharmacist");
+        btnEdit.setOnAction(e -> {
+            Pharmacist selected = pharmacistsTable.getSelectionModel().getSelectedItem();
+            if (selected == null) {
+                showError("Please select a pharmacist from the table to edit.");
+                return;
+            }
+            showEditPharmacistDialog(selected);
+        });
+
+        Button btnDelete = new Button("🗑️ Remove Pharmacist");
+        btnDelete.getStyleClass().addAll(Styles.BUTTON_OUTLINED, Styles.DANGER);
+        btnDelete.setOnAction(e -> {
+            Pharmacist selected = pharmacistsTable.getSelectionModel().getSelectedItem();
+            if (selected == null) {
+                showError("Please select a pharmacist to remove.");
+                return;
+            }
+            Alert alert = new Alert(Alert.AlertType.CONFIRMATION,
+                    "Are you sure you want to remove Pharmacist " + selected.fullName() + " from the dispensary roster?",
+                    ButtonType.YES, ButtonType.NO);
+            alert.setHeaderText("Confirm Pharmacist Deletion");
+            alert.showAndWait().ifPresent(res -> {
+                if (res == ButtonType.YES) {
+                    try {
+                        clinicDao.deletePharmacist(selected.id());
+                        refreshPharmacists();
+                        showNotification("Pharmacist removed from dispensary roster: " + selected.fullName());
+                    } catch (SQLException ex) {
+                        showError("Failed to delete pharmacist: " + ex.getMessage());
+                    }
+                }
+            });
+        });
 
         Button btnToggle = new Button("Toggle Active Status");
         btnToggle.setOnAction(e -> {
@@ -288,7 +736,7 @@ public class AdminManagementView extends BorderPane {
             }
         });
 
-        toolbar.getChildren().addAll(btnAdd, btnToggle);
+        toolbar.getChildren().addAll(btnAdd, btnEdit, btnDelete, btnToggle);
         pane.setTop(toolbar);
 
         pharmacistsTable = new TableView<>(pharmacistsList);
@@ -380,6 +828,67 @@ public class AdminManagementView extends BorderPane {
         });
     }
 
+    private void showEditPharmacistDialog(Pharmacist ph) {
+        Dialog<Pharmacist> dialog = new Dialog<>();
+        dialog.setTitle("Edit Pharmacist & Dispensary Details");
+        dialog.setHeaderText("Modify credentials and dispensary assignment for " + ph.fullName());
+
+        GridPane grid = new GridPane();
+        grid.setHgap(10);
+        grid.setVgap(10);
+        grid.setPadding(new Insets(14));
+
+        TextField txtName = new TextField(ph.fullName());
+        TextField txtReg = new TextField(ph.registrationNo());
+        TextField txtQual = new TextField(ph.qualification());
+        TextField txtDisp = new TextField(ph.dispensaryName());
+        TextField txtAddr = new TextField(ph.address());
+        TextField txtPhone = new TextField(ph.phone());
+        TextField txtEmail = new TextField(ph.email());
+        CheckBox chkActive = new CheckBox("Active Dispensary Duty");
+        chkActive.setSelected(ph.isActive());
+
+        grid.addRow(0, new Label("Pharmacist Full Name:"), txtName);
+        grid.addRow(1, new Label("Pharmacy License / Reg No:"), txtReg);
+        grid.addRow(2, new Label("Qualifications (e.g., D.Pharm):"), txtQual);
+        grid.addRow(3, new Label("Dispensary / Pharmacy Center:"), txtDisp);
+        grid.addRow(4, new Label("Dispensary Address:"), txtAddr);
+        grid.addRow(5, new Label("Contact Phone:"), txtPhone);
+        grid.addRow(6, new Label("Email Address:"), txtEmail);
+        grid.addRow(7, new Label("Status:"), chkActive);
+
+        dialog.getDialogPane().setContent(grid);
+        dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+
+        dialog.setResultConverter(btn -> {
+            if (btn == ButtonType.OK && !txtName.getText().trim().isEmpty()) {
+                return new Pharmacist(
+                        ph.id(),
+                        txtName.getText().trim(),
+                        txtReg.getText().trim(),
+                        txtQual.getText().trim(),
+                        txtDisp.getText().trim(),
+                        txtAddr.getText().trim(),
+                        txtPhone.getText().trim(),
+                        txtEmail.getText().trim(),
+                        chkActive.isSelected(),
+                        ph.createdAt()
+                );
+            }
+            return null;
+        });
+
+        dialog.showAndWait().ifPresent(updated -> {
+            try {
+                clinicDao.updatePharmacist(updated);
+                refreshPharmacists();
+                showNotification("Updated details for Pharmacist " + updated.fullName());
+            } catch (SQLException ex) {
+                showError("Failed to update pharmacist: " + ex.getMessage());
+            }
+        });
+    }
+
     // =========================================================================
     // 3. USER ACCOUNTS & RBAC PANE
     // =========================================================================
@@ -394,6 +903,41 @@ public class AdminManagementView extends BorderPane {
         Button btnAdd = new Button("➕ Create New User");
         btnAdd.getStyleClass().addAll(Styles.BUTTON_OUTLINED, Styles.SUCCESS);
         btnAdd.setOnAction(e -> showCreateUserDialog());
+
+        Button btnEdit = new Button("✏️ Edit Staff Details");
+        btnEdit.setOnAction(e -> {
+            User selected = usersTable.getSelectionModel().getSelectedItem();
+            if (selected == null) {
+                showError("Please select a staff user from the table to edit.");
+                return;
+            }
+            showEditUserDialog(selected);
+        });
+
+        Button btnDelete = new Button("🗑️ Delete Staff");
+        btnDelete.getStyleClass().addAll(Styles.BUTTON_OUTLINED, Styles.DANGER);
+        btnDelete.setOnAction(e -> {
+            User selected = usersTable.getSelectionModel().getSelectedItem();
+            if (selected == null) {
+                showError("Please select a staff user to delete.");
+                return;
+            }
+            Alert alert = new Alert(Alert.AlertType.CONFIRMATION,
+                    "Are you sure you want to permanently remove user account '" + selected.username() + "'?",
+                    ButtonType.YES, ButtonType.NO);
+            alert.setHeaderText("Confirm Staff User Deletion");
+            alert.showAndWait().ifPresent(res -> {
+                if (res == ButtonType.YES) {
+                    try {
+                        clinicDao.deleteUser(selected.id());
+                        refreshUsers();
+                        showNotification("Deleted staff user account: " + selected.username());
+                    } catch (SQLException ex) {
+                        showError("Failed to delete user: " + ex.getMessage());
+                    }
+                }
+            });
+        });
 
         Button btnResetPass = new Button("Reset Password");
         btnResetPass.setOnAction(e -> {
@@ -497,6 +1041,50 @@ public class AdminManagementView extends BorderPane {
         dialog.showAndWait().ifPresent(u -> {
             refreshUsers();
             showNotification("User created successfully: " + u.username() + " (" + u.role() + ")");
+        });
+    }
+
+    private void showEditUserDialog(User user) {
+        Dialog<ButtonType> dialog = new Dialog<>();
+        dialog.setTitle("Edit Staff User Account");
+        dialog.setHeaderText("Modify profile details and system role for " + user.username());
+
+        GridPane grid = new GridPane();
+        grid.setHgap(10);
+        grid.setVgap(10);
+        grid.setPadding(new Insets(14));
+
+        TextField txtUser = new TextField(user.username());
+        TextField txtFull = new TextField(user.fullName());
+        ComboBox<User.UserRole> comboRole = new ComboBox<>(FXCollections.observableArrayList(
+                User.UserRole.ADMIN, User.UserRole.DOCTOR, User.UserRole.PHARMACIST, User.UserRole.ASSISTANT
+        ));
+        comboRole.setValue(user.role());
+
+        grid.addRow(0, new Label("Username:"), txtUser);
+        grid.addRow(1, new Label("Full Name:"), txtFull);
+        grid.addRow(2, new Label("System Role:"), comboRole);
+
+        dialog.getDialogPane().setContent(grid);
+        dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+
+        dialog.showAndWait().ifPresent(btn -> {
+            if (btn == ButtonType.OK) {
+                String newUsername = txtUser.getText().trim();
+                String newName = txtFull.getText().trim();
+                User.UserRole newRole = comboRole.getValue();
+                if (newUsername.isEmpty()) {
+                    showError("Username cannot be blank.");
+                    return;
+                }
+                try {
+                    clinicDao.updateUserProfile(user.id(), newUsername, newName, newRole);
+                    refreshUsers();
+                    showNotification("Updated staff user account: " + newUsername);
+                } catch (SQLException ex) {
+                    showError("Failed to update user: " + ex.getMessage());
+                }
+            }
         });
     }
 
@@ -831,6 +1419,7 @@ public class AdminManagementView extends BorderPane {
     }
 
     public void refreshAllData() {
+        refreshInstitutionProfile();
         refreshDoctors();
         refreshPharmacists();
         refreshUsers();

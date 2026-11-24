@@ -64,46 +64,63 @@ if (-not (Test-Path $installDir)) {
 }
 Write-Host "[*] Target installation folder: $installDir" -ForegroundColor Gray
 
-# 4. Git / Repository Fetching
+# 4. Release Bundle / Repository Fetching
+$releaseZipUrl = "https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.1.0/OpenHomeo-v1.1.0-Windows.zip"
 $repoUrl = "https://github.com/bkoustoov-oss/openhomeo.git"
-if (Get-Command git -ErrorAction SilentlyContinue) {
-    if (Test-Path "$installDir\.git") {
-        Write-Host "[*] Existing OpenHomeo repository detected. Pulling latest updates..." -ForegroundColor Cyan
-        git -C $installDir pull
-    } else {
-        Write-Host "[*] Cloning OpenHomeo from GitHub repository..." -ForegroundColor Cyan
-        git clone $repoUrl $installDir
-    }
-} else {
-    Write-Host "[*] Git not found. Downloading repository archive ZIP directly..." -ForegroundColor Cyan
-    $zipPath = "$env:TEMP\openhomeo_master.zip"
-    $zipUrl = "https://github.com/bkoustoov-oss/openhomeo/archive/refs/heads/master.zip"
-    Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing
-    Expand-Archive -Path $zipPath -DestinationPath "$env:TEMP\openhomeo_unzip" -Force
-    Copy-Item -Path "$env:TEMP\openhomeo_unzip\openhomeo-master\*" -Destination $installDir -Recurse -Force
+$downloadedRelease = $false
+
+try {
+    Write-Host "[*] Checking for pre-compiled OpenHomeo v1.1.0 release bundle on GitHub..." -ForegroundColor Cyan
+    $zipPath = "$env:TEMP\openhomeo_v1.1.0_win.zip"
+    Invoke-WebRequest -Uri $releaseZipUrl -OutFile $zipPath -UseBasicParsing -TimeoutSec 30
+    Write-Host "[*] Extracting standalone binaries into $installDir..." -ForegroundColor Cyan
+    Expand-Archive -Path $zipPath -DestinationPath $installDir -Force
+    $downloadedRelease = $true
+    Write-Host "[+] Pre-compiled release bundle installed successfully." -ForegroundColor Green
+} catch {
+    Write-Host "[-] Pre-compiled release download unavailable; falling back to GitHub source deployment..." -ForegroundColor Yellow
 }
 
-# 5. Build native Rust core and Java Application
-Push-Location $installDir
-try {
-    # Check if native DLL is built
-    $dllPath = "$installDir\native-core\target\release\openhomeo_native.dll"
-    if (-not (Test-Path $dllPath)) {
-        if (Get-Command cargo -ErrorAction SilentlyContinue) {
-            Write-Host "[*] Compiling high-performance native Rust core via Cargo..." -ForegroundColor Cyan
-            Push-Location "$installDir\native-core"
-            cargo build --release
-            Pop-Location
+if (-not $downloadedRelease) {
+    if (Get-Command git -ErrorAction SilentlyContinue) {
+        if (Test-Path "$installDir\.git") {
+            Write-Host "[*] Existing OpenHomeo repository detected. Pulling latest updates..." -ForegroundColor Cyan
+            git -C $installDir pull
+        } else {
+            Write-Host "[*] Cloning OpenHomeo from GitHub repository..." -ForegroundColor Cyan
+            git clone $repoUrl $installDir
         }
+    } else {
+        Write-Host "[*] Git not found. Downloading repository archive ZIP directly..." -ForegroundColor Cyan
+        $zipPath = "$env:TEMP\openhomeo_master.zip"
+        $zipUrl = "https://github.com/bkoustoov-oss/openhomeo/archive/refs/heads/master.zip"
+        Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing
+        Expand-Archive -Path $zipPath -DestinationPath "$env:TEMP\openhomeo_unzip" -Force
+        Copy-Item -Path "$env:TEMP\openhomeo_unzip\openhomeo-master\*" -Destination $installDir -Recurse -Force
     }
 
-    # Build Maven Java workstation
-    if (Get-Command mvn -ErrorAction SilentlyContinue) {
-        Write-Host "[*] Compiling OpenHomeo workstation reactor via Maven..." -ForegroundColor Cyan
-        mvn clean package -DskipTests
+    # 5. Build native Rust core and Java Application (Source mode)
+    Push-Location $installDir
+    try {
+        # Check if native DLL is built
+        $dllPath = "$installDir\native-core\target\release\openhomeo_native.dll"
+        if (-not (Test-Path $dllPath)) {
+            if (Get-Command cargo -ErrorAction SilentlyContinue) {
+                Write-Host "[*] Compiling high-performance native Rust core via Cargo..." -ForegroundColor Cyan
+                Push-Location "$installDir\native-core"
+                cargo build --release
+                Pop-Location
+            }
+        }
+
+        # Build Maven Java workstation
+        if (Get-Command mvn -ErrorAction SilentlyContinue) {
+            Write-Host "[*] Compiling OpenHomeo workstation reactor via Maven..." -ForegroundColor Cyan
+            mvn clean package -DskipTests
+        }
+    } finally {
+        Pop-Location
     }
-} finally {
-    Pop-Location
 }
 
 # 6. Create Desktop Shortcut and Start Menu Launcher
@@ -111,8 +128,13 @@ $desktopPath = [System.Environment]::GetFolderPath([System.Environment+SpecialFo
 $shortcutPath = "$desktopPath\OpenHomeo Workstation.lnk"
 $wsh = New-Object -ComObject WScript.Shell
 $shortcut = $wsh.CreateShortcut($shortcutPath)
-$shortcut.TargetPath = "powershell.exe"
-$shortcut.Arguments = "-NoExit -Command `"cd '$installDir'; mvn javafx:run -pl openhomeo-gui`""
+if (Test-Path "$installDir\openhomeo.bat") {
+    $shortcut.TargetPath = "$installDir\openhomeo.bat"
+    $shortcut.Arguments = ""
+} else {
+    $shortcut.TargetPath = "powershell.exe"
+    $shortcut.Arguments = "-NoExit -Command `"cd '$installDir'; mvn javafx:run -pl openhomeo-gui`""
+}
 $shortcut.WorkingDirectory = $installDir
 $shortcut.Description = "OpenHomeo - Classical Homeopathy Professional Workstation (FOSS)"
 $shortcut.Save()
@@ -122,14 +144,18 @@ $cmdRunner = @"
 @echo off
 title OpenHomeo Workstation
 cd /d "$installDir"
-mvn javafx:run -pl openhomeo-gui
+if exist "openhomeo.bat" (
+    call openhomeo.bat
+) else (
+    mvn javafx:run -pl openhomeo-gui
+)
 "@
 $cmdRunner | Out-File -FilePath "$installDir\run-openhomeo.cmd" -Encoding ascii
 
 Write-Host @"
 
 ================================================================================
-[+] OpenHomeo Workstation has been deployed successfully!
+[+] OpenHomeo Workstation v1.1.0 has been deployed successfully!
 ================================================================================
   • Desktop Shortcut: $shortcutPath
   • Launcher Script:  $installDir\run-openhomeo.cmd
@@ -138,5 +164,5 @@ Write-Host @"
 
 To launch OpenHomeo immediately:
   Double-click the desktop shortcut or run:
-  cd "$installDir"; mvn javafx:run -pl openhomeo-gui
+  $installDir\run-openhomeo.cmd
 "@ -ForegroundColor Green

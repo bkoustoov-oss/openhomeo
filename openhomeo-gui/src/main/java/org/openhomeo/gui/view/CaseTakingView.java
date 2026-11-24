@@ -17,6 +17,7 @@ import org.openhomeo.core.db.ClinicDao;
 import org.openhomeo.core.db.MasterKnowledgeDao;
 import org.openhomeo.core.image.ImageVaultService;
 import org.openhomeo.core.model.*;
+import org.openhomeo.core.model.ClinicInstitutionProfile;
 import org.openhomeo.core.net.NetworkDiscoveryService;
 import org.openhomeo.core.pdf.PrescriptionPdfService;
 import org.openhomeo.core.repertory.SymptomClipboard;
@@ -1401,6 +1402,30 @@ public class CaseTakingView extends BorderPane {
 
     private void exportPrescriptionToPdf(Doctor doctor, Patient patient, Consultation consultation) {
         try {
+            ClinicInstitutionProfile inst;
+            try {
+                inst = clinicDao.getInstitutionProfile();
+            } catch (Exception ex) {
+                inst = ClinicInstitutionProfile.defaultProfile();
+            }
+
+            if (doctor == null && inst != null) {
+                doctor = new Doctor(
+                        "doc-inst",
+                        inst.chiefConsultantName(),
+                        inst.chiefConsultantRegNo(),
+                        inst.chiefConsultantQualifications(),
+                        "Chief Consulting Homeopath",
+                        inst.institutionName(),
+                        inst.address(),
+                        inst.phone(),
+                        inst.email(),
+                        "Consulting Physician",
+                        true,
+                        Instant.now()
+                );
+            }
+
             FileChooser chooser = new FileChooser();
             chooser.setTitle("Save Professional Prescription PDF");
             chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("PDF Documents (*.pdf)", "*.pdf"));
@@ -1410,7 +1435,7 @@ public class CaseTakingView extends BorderPane {
             File targetFile = chooser.showSaveDialog(getScene().getWindow());
             if (targetFile != null) {
                 boolean autoFit = autoFitCheck.isSelected();
-                pdfService.generatePrescriptionPdf(doctor, patient, consultation, currentPatientPastMeds, autoFit, targetFile);
+                pdfService.generatePrescriptionPdf(doctor, inst, patient, consultation, currentPatientPastMeds, autoFit, targetFile);
 
                 statusLabel.setText("PDF exported successfully: " + targetFile.getName());
 

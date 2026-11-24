@@ -76,6 +76,15 @@ public class ClinicDao {
         }
     }
 
+    public void deleteDoctor(String id) throws SQLException {
+        String sql = "DELETE FROM doctors WHERE id = ?";
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, id);
+            ps.executeUpdate();
+        }
+    }
+
     public Optional<Doctor> getDoctorById(String id) throws SQLException {
         if (id == null) return Optional.empty();
         String sql = "SELECT * FROM doctors WHERE id = ?";
@@ -178,6 +187,15 @@ public class ClinicDao {
             ps.setString(7, p.email());
             ps.setBoolean(8, p.isActive());
             ps.setString(9, p.id());
+            ps.executeUpdate();
+        }
+    }
+
+    public void deletePharmacist(String id) throws SQLException {
+        String sql = "DELETE FROM pharmacists WHERE id = ?";
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, id);
             ps.executeUpdate();
         }
     }
@@ -631,6 +649,18 @@ public class ClinicDao {
         try (Connection conn = dbManager.getClinicConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, userId);
+            ps.executeUpdate();
+        }
+    }
+
+    public void updateUserProfile(String userId, String username, String fullName, User.UserRole role) throws SQLException {
+        String sql = "UPDATE users SET username = ?, full_name = ?, role = ? WHERE id = ?";
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, username);
+            ps.setString(2, fullName);
+            ps.setString(3, role.name());
+            ps.setString(4, userId);
             ps.executeUpdate();
         }
     }
@@ -1894,5 +1924,78 @@ public class ClinicDao {
             }
         }
         return list;
+    }
+
+    // =========================================================================
+    // CLINIC / INSTITUTION REGISTRATION PROFILE
+    // =========================================================================
+
+    public ClinicInstitutionProfile getInstitutionProfile() throws SQLException {
+        String sql = "SELECT * FROM clinic_institution_profile LIMIT 1";
+        try (Connection conn = dbManager.getClinicConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            if (rs.next()) {
+                Timestamp ts = rs.getTimestamp("updated_at");
+                return new ClinicInstitutionProfile(
+                        rs.getString("id"),
+                        rs.getString("institution_name"),
+                        rs.getString("tagline"),
+                        rs.getString("registration_number"),
+                        rs.getString("address"),
+                        rs.getString("phone"),
+                        rs.getString("email"),
+                        rs.getString("website"),
+                        rs.getString("chief_consultant_name"),
+                        rs.getString("chief_consultant_qualifications"),
+                        rs.getString("chief_consultant_reg_no"),
+                        rs.getString("default_currency"),
+                        rs.getString("default_regimen_instructions"),
+                        ts != null ? ts.toInstant() : Instant.now()
+                );
+            }
+        }
+        return ClinicInstitutionProfile.defaultProfile();
+    }
+
+    public void saveInstitutionProfile(ClinicInstitutionProfile profile) throws SQLException {
+        String sql = """
+            INSERT INTO clinic_institution_profile (
+                id, institution_name, tagline, registration_number, address, phone, email, website,
+                chief_consultant_name, chief_consultant_qualifications, chief_consultant_reg_no,
+                default_currency, default_regimen_instructions, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(id) DO UPDATE SET
+                institution_name = excluded.institution_name,
+                tagline = excluded.tagline,
+                registration_number = excluded.registration_number,
+                address = excluded.address,
+                phone = excluded.phone,
+                email = excluded.email,
+                website = excluded.website,
+                chief_consultant_name = excluded.chief_consultant_name,
+                chief_consultant_qualifications = excluded.chief_consultant_qualifications,
+                chief_consultant_reg_no = excluded.chief_consultant_reg_no,
+                default_currency = excluded.default_currency,
+                default_regimen_instructions = excluded.default_regimen_instructions,
+                updated_at = CURRENT_TIMESTAMP;
+        """;
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, profile.id() != null ? profile.id() : "inst-default");
+            ps.setString(2, profile.institutionName());
+            ps.setString(3, profile.tagline());
+            ps.setString(4, profile.registrationNumber());
+            ps.setString(5, profile.address());
+            ps.setString(6, profile.phone());
+            ps.setString(7, profile.email());
+            ps.setString(8, profile.website());
+            ps.setString(9, profile.chiefConsultantName());
+            ps.setString(10, profile.chiefConsultantQualifications());
+            ps.setString(11, profile.chiefConsultantRegNo());
+            ps.setString(12, profile.defaultCurrency());
+            ps.setString(13, profile.defaultRegimenInstructions());
+            ps.executeUpdate();
+        }
     }
 }

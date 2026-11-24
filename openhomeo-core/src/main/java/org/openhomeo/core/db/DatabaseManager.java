@@ -492,6 +492,55 @@ public class DatabaseManager {
             try { stmt.execute("ALTER TABLE ota_update_history ADD COLUMN changelog_summary TEXT;"); } catch (SQLException ignored) {}
             try { stmt.execute("ALTER TABLE ota_update_history ADD COLUMN execution_log TEXT;"); } catch (SQLException ignored) {}
 
+            // Registered Institution / Clinic Profile
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS clinic_institution_profile (
+                    id TEXT PRIMARY KEY,
+                    institution_name TEXT NOT NULL,
+                    tagline TEXT,
+                    registration_number TEXT,
+                    address TEXT,
+                    phone TEXT,
+                    email TEXT,
+                    website TEXT,
+                    chief_consultant_name TEXT,
+                    chief_consultant_qualifications TEXT,
+                    chief_consultant_reg_no TEXT,
+                    default_currency TEXT DEFAULT 'INR (₹)',
+                    default_regimen_instructions TEXT,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """);
+
+            // Seed default institution profile if none exists
+            try (ResultSet rs = stmt.executeQuery("SELECT count(*) FROM clinic_institution_profile")) {
+                if (rs.next() && rs.getInt(1) == 0) {
+                    stmt.execute("""
+                        INSERT INTO clinic_institution_profile (
+                            id, institution_name, tagline, registration_number, address, phone, email, website,
+                            chief_consultant_name, chief_consultant_qualifications, chief_consultant_reg_no,
+                            default_currency, default_regimen_instructions, updated_at
+                        ) VALUES (
+                            'inst-default',
+                            'HAHNEMANNIAN CLASSICAL HOMEOPATHIC CLINIC',
+                            'Advanced Classical Posology & Miasmatic Practice',
+                            'REG-CLINIC-2026/01',
+                            'Central Healthcare Facility Premises, Medical Enclave',
+                            '+91 00000 00000',
+                            'clinic@openhomeo.local',
+                            'https://openhomeo.org',
+                            'Dr. Consulting Physician',
+                            'B.H.M.S., M.D. (Homoeopathy)',
+                            'REG-HOM-2026/01',
+                            'INR (₹)',
+                            '• Avoid strong smelling substances (raw onion, garlic, menthol, camphor, eucalyptus, strong coffee) 30 mins before & after dose.\n• Take globules dry on a clean tongue or dissolved in fresh water as instructed.',
+                            CURRENT_TIMESTAMP
+                        );
+                    """);
+                    log.info("Initialized default clinic institution registration profile");
+                }
+            }
+
             // Seed default doctor if none exists
             try (ResultSet rs = stmt.executeQuery("SELECT count(*) FROM doctors")) {
                 if (rs.next() && rs.getInt(1) == 0) {

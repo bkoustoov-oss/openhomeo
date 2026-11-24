@@ -48,4 +48,5 @@ backups/
 .user_uploaded/
 credential*.json
 token*.json
+dist/
 
