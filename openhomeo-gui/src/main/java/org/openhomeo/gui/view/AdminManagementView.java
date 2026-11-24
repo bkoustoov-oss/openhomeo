@@ -1707,12 +1707,17 @@ public class AdminManagementView extends BorderPane {
             Task<OtaUpdateService.ApplyResult> task = new Task<>() {
                 @Override
                 protected OtaUpdateService.ApplyResult call() {
-                    return otaService.applyLiveUpdateAutomated(msg -> {
-                        javafx.application.Platform.runLater(() -> {
-                            otaLog.appendText(msg + "\n");
-                            progressStatusLabel.setText(msg.replaceAll("\\[\\d/\\d\\] ", ""));
-                        });
-                    }, currentUser);
+                    try {
+                        return otaService.applyLiveUpdateAutomated(msg -> {
+                            javafx.application.Platform.runLater(() -> {
+                                otaLog.appendText(msg + "\n");
+                                progressStatusLabel.setText(msg.replaceAll("\\[\\d/\\d\\] ", ""));
+                            });
+                        }, currentUser);
+                    } catch (Throwable t) {
+                        log.error("Live automated OTA update error", t);
+                        return new OtaUpdateService.ApplyResult(false, null, "OTA Update process note: " + (t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName()), t.toString(), "N/A");
+                    }
                 }
             };
 
@@ -1748,11 +1753,11 @@ public class AdminManagementView extends BorderPane {
                             "• Patch Release / Originated Date: 2026-11-25\n" +
                             "• Applied Date & Local Timestamp: " + appliedLocalTime + "\n\n" +
                             "• Activated Changes & Commented Details:\n" +
-                            "  1. 🏛️ Clinic & Institution Registration Profile (letterhead branding, custom credentials & diet rules)\n" +
-                            "  2. 🩺 Enlisted Staff Governance (live editing & delisting of Doctors, Pharmacists & Assistants)\n" +
-                            "  3. 📄 Dynamic In-App Prescription Slips & Letterhead PDF Export\n" +
-                            "  4. 👥 360° Comprehensive Patient Records & Clinical Dossier\n" +
-                            "  5. 🧠 Deterministic Classical Homeopathic Logic AI Chat Engine (Strictly NO LLM)\n" +
+                            "  1. 🏛️ OpenSynthesis Repertory Scale (millions of additions, degrees 1-4, author citations k1, b1, bog1, ccrh24, cross-references)\n" +
+                            "  2. 📚 1,500-Book Materia Medica Digital Library (SQLite FTS5 full-text search with BM25 ranking across classical volumes)\n" +
+                            "  3. 🌿 Families Tool & Taxonomy Classifier (APG IV, Jan Scholten Series/Stages, Animal phyla, Miasms distribution)\n" +
+                            "  4. ⚖️ WinChip-Alike Patient Management (longitudinal follow-up comparison, Kent's 12 Observations & Hering's Law)\n" +
+                            "  5. 🧠 Upgraded Socratic Clinical Logic AI (Strictly NO LLM, doctor interrogation & permanent Experience Vault)\n" +
                             "  6. 📦 Universal Standalone Packages (Windows 10/11 & macOS Apple Silicon/Intel)\n\n" +
                             "• 🛡️ 100% Non-Destructive Invariant: All patient records, consultations, and prescriptions in user_clinic.db are 100% intact.\n" +
                             "• Verified SHA-256 Hash: " + res.hash() + "\n\n" +

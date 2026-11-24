@@ -35,7 +35,7 @@ if (-not (Test-Path $depDir)) {
     mvn dependency:copy-dependencies -pl openhomeo-gui
 }
 Get-ChildItem -Path (Join-Path $rootDir "openhomeo-gui\target\dependency\*.jar") | Where-Object {
-    $_.Name -notmatch "junit" -and $_.Name -notmatch "opentest4j" -and $_.Name -notmatch "apiguardian"
+    $_.Name -notmatch "junit" -and $_.Name -notmatch "opentest4j" -and $_.Name -notmatch "apiguardian" -and $_.Name -notmatch "openhomeo-core"
 } | ForEach-Object {
     Copy-Item $_.FullName -Destination $winLib -Force
 }
@@ -53,6 +53,11 @@ $batContent = @"
 @echo off
 title OpenHomeo Classical Workstation v1.2.0 Diamond
 cd /d "%~dp0"
+
+if exist "%~dp0openhomeo-gui-update.jar" (
+    move /y "%~dp0openhomeo-gui-update.jar" "%~dp0openhomeo-gui-1.0.0-SNAPSHOT.jar" >nul 2>&1
+)
+
 echo ================================================================================
 echo   OpenHomeo Classical Workstation v1.2.0 Diamond (Windows Portable)
 echo ================================================================================
@@ -169,7 +174,7 @@ New-Item -ItemType Directory -Path $macLib | Out-Null
 # Copy GUI jar and runtime lib
 Copy-Item (Join-Path $rootDir "openhomeo-gui\target\openhomeo-gui-1.0.0-SNAPSHOT.jar") -Destination $macDir -Force
 Get-ChildItem -Path (Join-Path $rootDir "openhomeo-gui\target\dependency\*.jar") | Where-Object {
-    $_.Name -notmatch "junit" -and $_.Name -notmatch "opentest4j" -and $_.Name -notmatch "apiguardian"
+    $_.Name -notmatch "junit" -and $_.Name -notmatch "opentest4j" -and $_.Name -notmatch "apiguardian" -and $_.Name -notmatch "openhomeo-core"
 } | ForEach-Object {
     Copy-Item $_.FullName -Destination $macLib -Force
 }

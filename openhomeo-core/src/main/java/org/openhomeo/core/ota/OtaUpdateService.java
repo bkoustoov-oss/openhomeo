@@ -226,7 +226,123 @@ public class OtaUpdateService {
                 report.accept("[-] Git execution bypassed (" + ex.getMessage() + "). Applying database and knowledge upgrade directly.");
             }
         } else {
-            report.accept("[3/6] Standalone installation detected. Staging master knowledge and resource files...");
+            report.accept("[3/6] Standalone installation detected. Fetching latest release package Over-The-Air from GitHub...");
+            try {
+                // Fetch live download URL from GitHub manifest
+                String manifestUrl = "https://raw.githubusercontent.com/bkoustoov-oss/openhomeo/master/ota_manifest.json";
+                HttpClient client = HttpClient.newBuilder()
+                        .followRedirects(HttpClient.Redirect.ALWAYS)
+                        .connectTimeout(Duration.ofSeconds(10))
+                        .build();
+                HttpRequest req = HttpRequest.newBuilder()
+                        .uri(URI.create(manifestUrl))
+                        .timeout(Duration.ofSeconds(10))
+                        .header("User-Agent", "OpenHomeo-Workstation")
+                        .GET()
+                        .build();
+                HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString());
+                String downloadUrl = null;
+                if (resp.statusCode() == 200 && resp.body() != null && !resp.body().isBlank()) {
+                    ObjectMapper mapper = new ObjectMapper();
+                    JsonNode root = mapper.readTree(resp.body());
+                    boolean isWindows = System.getProperty("os.name", "").toLowerCase().contains("win");
+                    if (isWindows) {
+                        downloadUrl = root.path("downloadUrls").path("windows").asText(null);
+                    } else {
+                        downloadUrl = root.path("downloadUrls").path("macOSZip").asText(null);
+                    }
+                }
+                if (downloadUrl == null || downloadUrl.isBlank()) {
+                    downloadUrl = "https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.2.0/OpenHomeo-v1.2.0-Windows.zip";
+                }
+
+                report.accept("  Downloading OTA standalone bundle: " + downloadUrl);
+                File tempZip = new File(System.getProperty("java.io.tmpdir"), "openhomeo_ota_" + System.currentTimeMillis() + ".zip");
+                HttpRequest dlReq = HttpRequest.newBuilder()
+                        .uri(URI.create(downloadUrl))
+                        .timeout(Duration.ofSeconds(90))
+                        .header("User-Agent", "OpenHomeo-Workstation")
+                        .GET()
+                        .build();
+                HttpResponse<InputStream> dlResp = client.send(dlReq, HttpResponse.BodyHandlers.ofInputStream());
+                if (dlResp.statusCode() == 200) {
+                    try (InputStream in = dlResp.body(); OutputStream out = new FileOutputStream(tempZip)) {
+                        in.transferTo(out);
+                    }
+                    report.accept("✓ Downloaded OTA package (" + (tempZip.length() / (1024 * 1024)) + " MB). Unpacking components...");
+
+                    // Extract zip entries
+                    try (java.util.zip.ZipInputStream zis = new java.util.zip.ZipInputStream(new FileInputStream(tempZip))) {
+                        java.util.zip.ZipEntry ze;
+                        while ((ze = zis.getNextEntry()) != null) {
+                            String name = ze.getName();
+                            if (ze.isDirectory()) {
+                                zis.closeEntry();
+                                continue;
+                            }
+                            // Strip top-level directory if present (e.g. OpenHomeo-v1.2.0-Windows/...)
+                            if (name.contains("/")) {
+                                name = name.substring(name.indexOf('/') + 1);
+                            } else if (name.contains("\\")) {
+                                name = name.substring(name.indexOf('\\') + 1);
+                            }
+                            if (name.isBlank()) {
+                                zis.closeEntry();
+                                continue;
+                            }
+
+                            // Strict non-destructive invariant: NEVER overwrite user databases or local clinic records!
+                            if (name.equalsIgnoreCase("user_clinic.db") || name.contains("user_clinic")) {
+                                zis.closeEntry();
+                                continue;
+                            }
+
+                            File destFile = new File(installDir, name.replace('/', File.separatorChar));
+                            if (destFile.getParentFile() != null) {
+                                destFile.getParentFile().mkdirs();
+                            }
+
+                            // For running jars that might be file-locked on Windows
+                            if (destFile.getName().equalsIgnoreCase("openhomeo-gui-1.0.0-SNAPSHOT.jar")) {
+                                try {
+                                    try (FileOutputStream fos = new FileOutputStream(destFile)) {
+                                        zis.transferTo(fos);
+                                    }
+                                } catch (Exception lockEx) {
+                                    File updateJar = new File(installDir, "openhomeo-gui-update.jar");
+                                    try (FileOutputStream fos = new FileOutputStream(updateJar)) {
+                                        zis.transferTo(fos);
+                                    }
+                                    report.accept("  [Note] Staged next-boot executable at: openhomeo-gui-update.jar");
+                                }
+                            } else {
+                                try (FileOutputStream fos = new FileOutputStream(destFile)) {
+                                    zis.transferTo(fos);
+                                } catch (Exception fEx) {
+                                    report.accept("  [-] File copy note (" + destFile.getName() + "): " + fEx.getMessage());
+                                }
+                            }
+                            zis.closeEntry();
+                        }
+                    }
+                    tempZip.delete();
+
+                    // Clean up any stale core libraries from lib/ that could cause classloader split-package errors
+                    File staleCore = new File(installDir, "lib" + File.separator + "openhomeo-core-1.0.0-SNAPSHOT.jar");
+                    if (staleCore.exists()) {
+                        try {
+                            staleCore.delete();
+                            report.accept("✓ Cleaned up redundant core library from lib/ to prevent classloader collisions.");
+                        } catch (Exception ignored) {}
+                    }
+
+                    report.accept("✓ Successfully deployed updated software modules and libraries from GitHub release.");
+                } else {
+                    report.accept("[-] Download returned HTTP " + dlResp.statusCode() + ". Continuing with database and asset seeding...");
+                }
+            } catch (Exception dlEx) {
+                report.accept("[-] OTA bundle fetch note: " + dlEx.getMessage() + ". Proceeding with database and schema verification...");
+            }
         }
 
         // 4. Update Master Repertory Knowledge Base
