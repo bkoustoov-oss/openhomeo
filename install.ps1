@@ -65,13 +65,13 @@ if (-not (Test-Path $installDir)) {
 Write-Host "[*] Target installation folder: $installDir" -ForegroundColor Gray
 
 # 4. Release Bundle / Repository Fetching
-$releaseZipUrl = "https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.1.0/OpenHomeo-v1.1.0-Windows.zip"
+$releaseZipUrl = "https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.2.0/OpenHomeo-v1.2.0-Windows.zip"
 $repoUrl = "https://github.com/bkoustoov-oss/openhomeo.git"
 $downloadedRelease = $false
 
 try {
-    Write-Host "[*] Checking for pre-compiled OpenHomeo v1.1.0 release bundle on GitHub..." -ForegroundColor Cyan
-    $zipPath = "$env:TEMP\openhomeo_v1.1.0_win.zip"
+    Write-Host "[*] Checking for pre-compiled OpenHomeo v1.2.0 Diamond release bundle on GitHub..." -ForegroundColor Cyan
+    $zipPath = "$env:TEMP\openhomeo_v1.2.0_win.zip"
     Invoke-WebRequest -Uri $releaseZipUrl -OutFile $zipPath -UseBasicParsing -TimeoutSec 30
     Write-Host "[*] Extracting standalone binaries into $installDir..." -ForegroundColor Cyan
     Expand-Archive -Path $zipPath -DestinationPath $installDir -Force
@@ -126,6 +126,16 @@ if (-not $downloadedRelease) {
 # 6. Create Desktop Shortcut and Start Menu Launcher
 $desktopPath = [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::Desktop)
 $shortcutPath = "$desktopPath\OpenHomeo Workstation.lnk"
+
+# Ensure branded icon is present in installation directory
+$icoSrc = Join-Path $installDir "openhomeo.ico"
+if (-not (Test-Path $icoSrc)) {
+    $icoSub = Join-Path $installDir "openhomeo-gui\src\main\resources\icons\openhomeo.ico"
+    if (Test-Path $icoSub) {
+        Copy-Item $icoSub -Destination $icoSrc -Force
+    }
+}
+
 $wsh = New-Object -ComObject WScript.Shell
 $shortcut = $wsh.CreateShortcut($shortcutPath)
 if (Test-Path "$installDir\openhomeo.bat") {
@@ -136,26 +146,30 @@ if (Test-Path "$installDir\openhomeo.bat") {
     $shortcut.Arguments = "-NoExit -Command `"cd '$installDir'; mvn javafx:run -pl openhomeo-gui`""
 }
 $shortcut.WorkingDirectory = $installDir
-$shortcut.Description = "OpenHomeo - Classical Homeopathy Professional Workstation (FOSS)"
+$shortcut.Description = "OpenHomeo - Classical Homeopathy Professional Workstation (Diamond Edition)"
 
-# Ensure branded icon is copied and set on shortcut
-$icoSrc = Join-Path $installDir "openhomeo.ico"
-if (-not (Test-Path $icoSrc)) {
-    $icoSub = Join-Path $installDir "openhomeo-gui\src\main\resources\icons\openhomeo.ico"
-    if (Test-Path $icoSub) {
-        Copy-Item $icoSub -Destination $icoSrc -Force
-    }
-}
 if (Test-Path $icoSrc) {
     $shortcut.IconLocation = "$icoSrc,0"
 }
-
 $shortcut.Save()
+
+# Notify Windows Explorer Shell to refresh icon cache immediately
+try {
+    Add-Type -TypeDefinition @"
+    using System;
+    using System.Runtime.InteropServices;
+    public class ShellNotifier {
+        [DllImport("shell32.dll")]
+        public static extern void SHChangeNotify(int wEventId, int uFlags, IntPtr dwItem1, IntPtr dwItem2);
+    }
+"@
+    [ShellNotifier]::SHChangeNotify(0x08000000, 0, [IntPtr]::Zero, [IntPtr]::Zero)
+} catch {}
 
 # 7. Create Start Script runner (run-openhomeo.cmd)
 $cmdRunner = @"
 @echo off
-title OpenHomeo Workstation
+title OpenHomeo Workstation v1.2.0 Diamond
 cd /d "$installDir"
 if exist "openhomeo.bat" (
     call openhomeo.bat
@@ -168,12 +182,13 @@ $cmdRunner | Out-File -FilePath "$installDir\run-openhomeo.cmd" -Encoding ascii
 Write-Host @"
 
 ================================================================================
-[+] OpenHomeo Workstation v1.1.0 has been deployed successfully!
+[+] OpenHomeo Workstation v1.2.0 Diamond has been deployed successfully!
 ================================================================================
-  • Desktop Shortcut: $shortcutPath
+  • Desktop Shortcut: $shortcutPath (Branded Icon Linked)
   • Launcher Script:  $installDir\run-openhomeo.cmd
   • Clinic Database:  $env:USERPROFILE\.openhomeo\user_clinic.db (AES-256 Encrypted)
   • Bedside LAN App:  http://localhost:8090 (PIN: doctor123 / admin123)
+  • Modules: OpenSynthesis Repertory | 1,500-Book FTS5 MM Library | Families Tool | WinChip Follow-up
 
 To launch OpenHomeo immediately:
   Double-click the desktop shortcut or run:

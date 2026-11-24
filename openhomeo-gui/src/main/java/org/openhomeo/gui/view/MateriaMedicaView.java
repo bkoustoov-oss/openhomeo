@@ -13,7 +13,10 @@ import javafx.scene.text.FontWeight;
 import org.openhomeo.core.db.ClinicDao;
 import org.openhomeo.core.db.MasterKnowledgeDao;
 import org.openhomeo.core.materia_medica.HomeopathicClinicalRhymes;
+import org.openhomeo.core.model.MateriaMedicaBook;
 import org.openhomeo.core.model.MateriaMedicaEntry;
+import org.openhomeo.core.model.MateriaMedicaSearchResult;
+import org.openhomeo.core.model.MateriaMedicaSection;
 import org.openhomeo.core.model.MedicineConstituent;
 import org.openhomeo.core.model.Remedy;
 import org.openhomeo.core.model.RemedyRelationship;
@@ -68,6 +71,21 @@ public class MateriaMedicaView extends BorderPane {
     // View toggles
     private final ToggleButton btnDualView;
     private final ToggleButton btnMatrixView;
+    private final ToggleButton btnLibraryView;
+
+    // Digital Library UI fields
+    private VBox libraryBox;
+    private TextField librarySearchField;
+    private ComboBox<String> libraryBookFilterCombo;
+    private ListView<MateriaMedicaSearchResult> libraryResultsList;
+    private TextArea libraryReaderArea;
+    private Label libraryReaderHeading;
+    private Label libraryReaderBookLabel;
+    private java.util.function.Consumer<String> onConsultAiRequested;
+
+    public void setOnConsultAiRequested(java.util.function.Consumer<String> callback) {
+        this.onConsultAiRequested = callback;
+    }
 
     public record RemedyItem(Remedy remedy) {
         @Override
@@ -173,9 +191,15 @@ public class MateriaMedicaView extends BorderPane {
         btnMatrixView.setToggleGroup(viewGroup);
         btnMatrixView.getStyleClass().add(Styles.SMALL);
 
+        btnLibraryView = new ToggleButton("📚 1,500-Book Digital Library (FTS5)");
+        btnLibraryView.setToggleGroup(viewGroup);
+        btnLibraryView.getStyleClass().add(Styles.SMALL);
+
         viewGroup.selectedToggleProperty().addListener((obs, oldVal, newVal) -> {
             if (newVal == btnMatrixView) {
                 showDifferentialMatrixView();
+            } else if (newVal == btnLibraryView) {
+                showDigitalLibraryView();
             } else {
                 showDualMonographView();
             }
@@ -188,7 +212,7 @@ public class MateriaMedicaView extends BorderPane {
                 new Separator(),
                 lblComp, compareSearchField, compareRemedyCombo, btnClearComp,
                 new Separator(),
-                new Label("Mode:"), btnDualView, btnMatrixView
+                new Label("Mode:"), btnDualView, btnMatrixView, btnLibraryView
         );
 
         // Sub-Toolbar: Quick-Compare Related Remedies Chips Bar
@@ -318,6 +342,200 @@ public class MateriaMedicaView extends BorderPane {
     private void showDifferentialMatrixView() {
         centerContainer.getChildren().setAll(matrixTable.getParent() instanceof VBox ? matrixTable.getParent() : new VBox(matrixHeaderLabel, matrixTable));
         updateDifferentialMatrix();
+    }
+
+    private void showDigitalLibraryView() {
+        if (libraryBox == null) {
+            libraryBox = createDigitalLibraryBox();
+        }
+        centerContainer.getChildren().setAll(libraryBox);
+        if (libraryResultsList.getItems().isEmpty()) {
+            executeLibrarySearch();
+        }
+    }
+
+    private VBox createDigitalLibraryBox() {
+        VBox box = new VBox(8);
+        box.setPadding(new Insets(10));
+
+        HBox searchRow = new HBox(10);
+        searchRow.setAlignment(Pos.CENTER_LEFT);
+
+        Label searchLbl = new Label("📚 FTS5 Search across 1,500 Volumes:");
+        searchLbl.setFont(Font.font("Segoe UI", FontWeight.BOLD, 12));
+
+        librarySearchField = new TextField();
+        librarySearchField.setPromptText("Enter symptom keywords (e.g. headache sun agg glonoin, organon 248, burning heat amel)...");
+        librarySearchField.setPrefWidth(380);
+        librarySearchField.setOnAction(e -> executeLibrarySearch());
+
+        libraryBookFilterCombo = new ComboBox<>();
+        libraryBookFilterCombo.setPrefWidth(240);
+        libraryBookFilterCombo.getItems().addAll(
+                "All 1,500 Volumes",
+                "Organon of Medicine (6th Edition)",
+                "Materia Medica Pura (Vols 1-6)",
+                "The Chronic Diseases (Vols 1-5)",
+                "Lectures on Homoeopathic Materia Medica",
+                "Lectures on Homoeopathic Philosophy",
+                "Pocket Manual of Homoeopathic Materia Medica & Repertory",
+                "A Dictionary of Practical Materia Medica (3 Volumes)",
+                "Leaders in Homoeopathic Therapeutics",
+                "The Guiding Symptoms of our Materia Medica (10 Volumes)",
+                "A Synoptic Key of the Materia Medica",
+                "Clinical Verification of Indigenous Indian Drugs"
+        );
+        libraryBookFilterCombo.setValue("All 1,500 Volumes");
+        libraryBookFilterCombo.setOnAction(e -> executeLibrarySearch());
+
+        Button searchBtn = new Button("⚡ Instant FTS5 Search");
+        searchBtn.getStyleClass().addAll(Styles.ACCENT, Styles.BUTTON_OUTLINED);
+        searchBtn.setOnAction(e -> executeLibrarySearch());
+
+        searchRow.getChildren().addAll(searchLbl, librarySearchField, libraryBookFilterCombo, searchBtn);
+
+        // SplitPane: Results List on Left, Monograph Content on Right
+        SplitPane libSplit = new SplitPane();
+        VBox.setVgrow(libSplit, Priority.ALWAYS);
+
+        VBox resultsBox = new VBox(6);
+        resultsBox.setPadding(new Insets(6));
+        Label resLbl = new Label("Matching Treatise Chapters & Paragraphs:");
+        resLbl.setFont(Font.font("Segoe UI", FontWeight.BOLD, 11));
+        resLbl.getStyleClass().add(Styles.TEXT_MUTED);
+
+        libraryResultsList = new ListView<>();
+        VBox.setVgrow(libraryResultsList, Priority.ALWAYS);
+        libraryResultsList.setCellFactory(lv -> new ListCell<>() {
+            @Override
+            protected void updateItem(MateriaMedicaSearchResult item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) {
+                    setText(null);
+                    setGraphic(null);
+                } else {
+                    VBox card = new VBox(2);
+                    Label title = new Label(item.remedyName() + " — " + item.sectionHeading());
+                    title.setFont(Font.font("Segoe UI", FontWeight.BOLD, 12));
+                    title.setTextFill(javafx.scene.paint.Color.web("#0369a1"));
+
+                    Label meta = new Label("📖 " + item.bookTitle() + " (" + item.author() + ")");
+                    meta.setFont(Font.font("Segoe UI", 10));
+                    meta.setTextFill(javafx.scene.paint.Color.web("#475569"));
+
+                    String cleanSnippet = item.snippet() != null ? item.snippet().replaceAll("<[^>]*>", "") : "";
+                    Label snip = new Label(cleanSnippet);
+                    snip.setFont(Font.font("Segoe UI", 11));
+                    snip.setWrapText(true);
+                    snip.setMaxWidth(340);
+
+                    card.getChildren().addAll(title, meta, snip);
+                    setGraphic(card);
+                }
+            }
+        });
+
+        libraryResultsList.getSelectionModel().selectedItemProperty().addListener((obs, oldVal, newVal) -> {
+            if (newVal != null) {
+                displayLibrarySection(newVal);
+            }
+        });
+
+        resultsBox.getChildren().addAll(resLbl, libraryResultsList);
+
+        // Reader Box
+        VBox readerBox = new VBox(8);
+        readerBox.setPadding(new Insets(8));
+
+        HBox readerHeader = new HBox(12);
+        readerHeader.setAlignment(Pos.CENTER_LEFT);
+
+        VBox titleBox = new VBox(2);
+        libraryReaderHeading = new Label("Select a section from the search results");
+        libraryReaderHeading.setFont(Font.font("Segoe UI", FontWeight.BOLD, 14));
+        libraryReaderBookLabel = new Label("Materia Medica Digital Library");
+        libraryReaderBookLabel.setFont(Font.font("Segoe UI", 11));
+        libraryReaderBookLabel.getStyleClass().add(Styles.TEXT_MUTED);
+        titleBox.getChildren().addAll(libraryReaderHeading, libraryReaderBookLabel);
+
+        Region rSpacer = new Region();
+        HBox.setHgrow(rSpacer, Priority.ALWAYS);
+
+        Button consultAiBtn = new Button("🧠 Consult Logic AI on this Chapter");
+        consultAiBtn.getStyleClass().addAll(Styles.SUCCESS, Styles.BUTTON_OUTLINED);
+        consultAiBtn.setOnAction(e -> {
+            if (onConsultAiRequested != null && libraryResultsList.getSelectionModel().getSelectedItem() != null) {
+                MateriaMedicaSearchResult sel = libraryResultsList.getSelectionModel().getSelectedItem();
+                String prompt = "Consult digital library: Analyze clinical keynote and indications for '" + sel.remedyName() +
+                        "' as documented in " + sel.bookTitle() + " by " + sel.author() + " (" + sel.sectionHeading() + ").";
+                onConsultAiRequested.accept(prompt);
+            }
+        });
+
+        readerHeader.getChildren().addAll(titleBox, rSpacer, consultAiBtn);
+
+        libraryReaderArea = new TextArea();
+        libraryReaderArea.setEditable(false);
+        libraryReaderArea.setWrapText(true);
+        libraryReaderArea.setStyle("-fx-font-family: 'Segoe UI', system-ui; -fx-font-size: 13px; -fx-line-spacing: 2px;");
+        VBox.setVgrow(libraryReaderArea, Priority.ALWAYS);
+
+        readerBox.getChildren().addAll(readerHeader, libraryReaderArea);
+
+        libSplit.getItems().addAll(resultsBox, readerBox);
+        libSplit.setDividerPositions(0.35);
+
+        box.getChildren().addAll(searchRow, libSplit);
+        return box;
+    }
+
+    private void executeLibrarySearch() {
+        if (librarySearchField == null) return;
+        String q = librarySearchField.getText();
+        if (q == null || q.isBlank()) {
+            // Default sample query
+            q = "burning heat amel";
+        }
+
+        try {
+            List<MateriaMedicaSearchResult> results = masterDao.searchMateriaMedicaFts(q);
+            String bookFilter = libraryBookFilterCombo.getValue();
+            if (bookFilter != null && !bookFilter.equals("All 1,500 Volumes")) {
+                results = results.stream()
+                        .filter(r -> r.bookTitle() != null && r.bookTitle().toLowerCase().contains(bookFilter.toLowerCase().substring(0, Math.min(15, bookFilter.length()))))
+                        .toList();
+            }
+
+            libraryResultsList.setItems(javafx.collections.FXCollections.observableArrayList(results));
+            if (!results.isEmpty()) {
+                libraryResultsList.getSelectionModel().selectFirst();
+            } else {
+                libraryReaderHeading.setText("No matching chapters found for query: " + q);
+                libraryReaderArea.setText("Tip: Try searching for characteristic symptoms like 'burning pain', 'restlessness', 'Organon 248', or remedy names like 'Arsenicum', 'Azadirachta', 'Lycopodium'.");
+            }
+        } catch (Exception e) {
+            log.error("Failed to execute library search", e);
+        }
+    }
+
+    private void displayLibrarySection(MateriaMedicaSearchResult res) {
+        libraryReaderHeading.setText(res.remedyName() + " — " + res.sectionHeading());
+        libraryReaderBookLabel.setText("Book: " + res.bookTitle() + " | Author: " + res.author());
+
+        try {
+            List<MateriaMedicaSection> sections = masterDao.getSectionsForRemedy(res.remedyName());
+            Optional<MateriaMedicaSection> match = sections.stream()
+                    .filter(s -> s.sectionHeading().equalsIgnoreCase(res.sectionHeading()))
+                    .findFirst();
+
+            if (match.isPresent()) {
+                libraryReaderArea.setText(match.get().bodyText() + "\n\n[Citation: " + match.get().pageOrVolRef() + "]");
+            } else {
+                libraryReaderArea.setText(res.snippet() != null ? res.snippet().replaceAll("<[^>]*>", "") : "Full text unavailable.");
+            }
+        } catch (Exception e) {
+            libraryReaderArea.setText(res.snippet() != null ? res.snippet().replaceAll("<[^>]*>", "") : "");
+        }
     }
 
     private void loadRemedies() {

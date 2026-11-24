@@ -1,15 +1,15 @@
 {
-  "version": "1.1.0",
-  "versionTitle": "1.1.0-Diamond+ (2026.11 Full Workstation Upgrade)",
+  "version": "1.2.0",
+  "versionTitle": "1.2.0-Diamond+ (Synthesis, 1,500-Book MM Library, Families & WinChip Upgrade)",
   "releaseDate": "2026-11-25",
-  "totalRemedies": 1250,
+  "totalRemedies": 1350,
   "updateAvailable": true,
-  "changelog": "• 🏛️ Clinic & Institution Registration Profile: Register official clinic name, medical license, address, helpline, chief consultant credentials, and custom diet/regimen rules with live letterhead preview.\n• 🩺 Enlisted Staff Governance: Full editing and delisting support for doctors, pharmacists, and clinic assistants directly from the admin workstation.\n• 📄 Dynamic In-App Prescription Slips & PDF Export: Professional letterheads dynamically reflect your clinic and attending doctor.\n• 👥 360° Comprehensive Patient Records & Clinical Dossier: Master directory, constitutional profiles, vital signs, and clinical photography timeline.\n• 🧠 Classical Homeopathic Logic AI Chat Engine (Strictly NO LLM): Deterministic reasoning on Organon §246-248, Kent posology, Gibson Miller relationships, and Boenninghausen polarities.\n• 📦 Universal Standalone Packages: Windows 10/11 portable zip and macOS (Apple Silicon & Intel) release packages.\n• 🛡️ 100% Non-Destructive Update Guarantee: Patient clinic records (user_clinic.db) remain strictly preserved and untouched.",
+  "changelog": "• 🏛️ OpenSynthesis Repertory Scale: Scalable architecture with millions of additions, author citations (k1, b1, bog1, a1, c1, boer1, h1, her1, ccrh24), and cross-reference synonym networks.\n• 📚 1,500-Book Materia Medica Digital Library: High-performance SQLite FTS5 BM25 search across classical treatises (Hahnemann, Kent, Boericke, Clarke, Nash, Hering, Boger, Allen, CCRH) accessible for Doctors and Admins.\n• 🌿 Families Tool: Taxonomical analysis across Plant Kingdom (APG IV), Mineral Kingdom (Jan Scholten Periodic Table Series/Stages), Animal Kingdom, and Miasms with distribution charts and matrix filtering.\n• ⚖️ WinChip-Alike Patient Management Module: Longitudinal consultation follow-up comparison, automated Kent's 12 Observations evaluator, and Hering's Law directional cure tracker.\n• 🧠 Upgraded Socratic Clinical Logic AI (Strictly NO LLM): Active Socratic questioning challenging thermal, miasmatic, and posology discrepancies.\n• ⚡ Doctor Supersede & Clinical Experience Capture: Structured preservation of the doctor's experiential clinical wisdom and verified keynotes into a permanent Experience Vault.\n• 🛡️ 100% Non-Destructive Update Guarantee: Patient clinic records (user_clinic.db) remain strictly preserved and untouched.",
   "downloadUrls": {
-    "windows": "https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.1.0/OpenHomeo-v1.1.0-Windows.zip",
-    "macOS": "https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.1.0/OpenHomeo-v1.1.0-macOS.tar.gz",
-    "macOSZip": "https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.1.0/OpenHomeo-v1.1.0-macOS.zip"
+    "windows": "https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.2.0/OpenHomeo-v1.2.0-Windows.zip",
+    "macOS": "https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.2.0/OpenHomeo-v1.2.0-macOS.tar.gz",
+    "macOSZip": "https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.2.0/OpenHomeo-v1.2.0-macOS.zip"
   },
   "repositoryUrl": "https://github.com/bkoustoov-oss/openhomeo",
-  "releasesUrl": "https://github.com/bkoustoov-oss/openhomeo/releases/tag/v1.1.0"
+  "releasesUrl": "https://github.com/bkoustoov-oss/openhomeo/releases/tag/v1.2.0"
 }

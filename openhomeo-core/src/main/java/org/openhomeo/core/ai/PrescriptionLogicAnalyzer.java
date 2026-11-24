@@ -348,4 +348,90 @@ public class PrescriptionLogicAnalyzer {
         return r.equals("sulph") || r.equals("sil") || r.equals("psor") || r.equals("calc") ||
                r.equals("lyc") || r.equals("graph") || r.equals("caust") || r.equals("med") || r.equals("syph");
     }
+
+    public record SocraticDialogueEvaluation(
+            boolean isFullySatisfied,
+            int satisfactionScore, // 0 - 100%
+            String justificationCategory,
+            String aiAssessment,
+            String guidanceOrCaution,
+            boolean warrantsDoctorSupersede
+    ) {}
+
+    /**
+     * Socratic evaluation of the consulting doctor's answer to an AI clinical question.
+     */
+    public SocraticDialogueEvaluation evaluateDoctorSocraticResponse(String questionContext, String doctorAnswer) {
+        if (doctorAnswer == null || doctorAnswer.trim().isBlank()) {
+            return new SocraticDialogueEvaluation(
+                    false,
+                    0,
+                    "UNANSWERED",
+                    "Doctor did not provide a clinical justification.",
+                    "Organon §153 and classical canons require explicit justification when deviating from thermal, miasmatic, or posological laws.",
+                    true
+            );
+        }
+
+        String ans = doctorAnswer.toLowerCase();
+        int score = 30;
+        String category = "CLINICAL_DISCRETION";
+        StringBuilder rationale = new StringBuilder();
+
+        // 1. Organon §153 Keynote / Peculiar / Characteristic
+        if (ans.contains("keynote") || ans.contains("peculiar") || ans.contains("153") ||
+            ans.contains("characteristic") || ans.contains("rare") || ans.contains("uncommon") || ans.contains("striking")) {
+            score += 45;
+            category = "ORGANON_153_PECULIAR_KEYNOTE";
+            rationale.append("✓ Supported by Samuel Hahnemann's Organon §153: Rare, striking, peculiar and uncommon keynote symptoms take precedence over general thermal or miasmatic features. ");
+        }
+
+        // 2. Mental Generals Overrule Physicals
+        if (ans.contains("mind") || ans.contains("mental") || ans.contains("delirium") ||
+            ans.contains("fear of death") || ans.contains("anguish") || ans.contains("disposition") || ans.contains("grief")) {
+            score += 25;
+            if (category.equals("CLINICAL_DISCRETION")) category = "MENTAL_GENERALS_OVERRULE";
+            rationale.append("✓ Validated under J.T. Kent's hierarchy: Mental generals (will, affections, intellect) outrank physical generals and particulars. ");
+        }
+
+        // 3. Tautopathic / Suppression Detoxification
+        if (ans.contains("tautopath") || ans.contains("suppress") || ans.contains("steroid") ||
+            ans.contains("antibiotic") || ans.contains("clearing") || ans.contains("detox") || ans.contains("antidote")) {
+            score += 25;
+            if (category.equals("CLINICAL_DISCRETION")) category = "TAUTOPATHIC_CLEARING";
+            rationale.append("✓ Validated as an intentional unblocking or tautopathic clearing strategy to lift medicinal suppression. ");
+        }
+
+        // 4. Acute Intercurrent Strategy
+        if (ans.contains("acute") || ans.contains("intercurrent") || ans.contains("crisis") ||
+            ans.contains("emergency") || ans.contains("severe pain") || ans.contains("spasm")) {
+            score += 20;
+            if (category.equals("CLINICAL_DISCRETION")) category = "ACUTE_INTERCURRENT";
+            rationale.append("✓ Validated under Boenninghausen & Boger: In acute emergencies, the acute symptom totality is prescribed for prior to constitutional anti-miasmatic work. ");
+        }
+
+        // 5. Personal Verified Clinical Experience
+        if (ans.contains("experience") || ans.contains("practice") || ans.contains("verified") ||
+            ans.contains("seen in cases") || ans.contains("cured before") || ans.contains("empirical")) {
+            score += 20;
+            if (category.equals("CLINICAL_DISCRETION")) category = "DOCTOR_EXPERIENTIAL_CONFIRMATION";
+            rationale.append("✓ Supported by practitioner's empirical clinical experience. ");
+        }
+
+        score = Math.min(score, 100);
+        boolean satisfied = score >= 75;
+
+        String caution = satisfied
+                ? "Classical requirement fulfilled. Case proceeding approved under doctor's noted rationale."
+                : "Residual canonical discrepancy detected. If proceeding despite rule tension, record structured 'Doctor Supersede' to preserve clinical experience.";
+
+        return new SocraticDialogueEvaluation(
+                satisfied,
+                score,
+                category,
+                rationale.toString().trim(),
+                caution,
+                !satisfied
+        );
+    }
 }

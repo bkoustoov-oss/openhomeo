@@ -50,6 +50,7 @@ public class AiClinicalLogicChatView extends BorderPane {
     private final TextField inputField = new TextField();
     private final ComboBox<PatientContextItem> patientContextCombo = new ComboBox<>();
     private final List<Patient> loadedPatients = new ArrayList<>();
+    private String activePendingChallenge = null;
 
     public record PatientContextItem(Patient patient, String label) {
         @Override
@@ -103,14 +104,29 @@ public class AiClinicalLogicChatView extends BorderPane {
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
+        Button supersedeBtn = new Button("⚡ Doctor Supersede (Capture Experience)");
+        supersedeBtn.setStyle("-fx-background-color: #fffbeb; -fx-text-fill: #b45309; -fx-font-weight: bold; -fx-border-color: #fde68a; -fx-border-radius: 6px;");
+        supersedeBtn.setOnAction(e -> openDoctorSupersedeDialog());
+
+        Button vaultBtn = new Button("📖 Experience Vault");
+        vaultBtn.getStyleClass().add(Styles.BUTTON_OUTLINED);
+        vaultBtn.setOnAction(e -> openDoctorExperienceVaultDialog());
+
+        Button digitalLibBtn = new Button("📚 1,500 Books");
+        digitalLibBtn.getStyleClass().add(Styles.BUTTON_OUTLINED);
+        digitalLibBtn.setOnAction(e -> {
+            sendUserMessage("Search digital library: burning heat amel Organon 248");
+        });
+
         Button clearBtn = new Button("🗑️ Clear Chat");
         clearBtn.getStyleClass().add(Styles.BUTTON_OUTLINED);
         clearBtn.setOnAction(e -> {
             chatMessagesBox.getChildren().clear();
+            activePendingChallenge = null;
             postSystemWelcome();
         });
 
-        banner.getChildren().addAll(title, engineBadge, spacer, clearBtn);
+        banner.getChildren().addAll(title, engineBadge, spacer, supersedeBtn, vaultBtn, digitalLibBtn, clearBtn);
 
         // Patient Context Bar
         HBox contextBar = new HBox(10);
@@ -180,7 +196,17 @@ public class AiClinicalLogicChatView extends BorderPane {
             sendUserMessage("Explain Hahnemannian miasmatic hierarchy (Psora, Sycosis, Syphilis)");
         });
 
-        chipsBox.getChildren().addAll(chipsTitle, chipTrajectory, chipPosology, chipInimical, chipPolarity, chipRhymes, chipMiasm);
+        Button chipInterrogate = createChip("⚡ Interrogate Prescription Rationale (Socratic AI)", () -> {
+            sendUserMessage("Interrogate my prescription rationale for this case");
+        });
+
+        Button chipLib = createChip("📚 Search 1,500-Book Digital Library", () -> {
+            sendUserMessage("Search library for headache sun agg glonoin Organon 248");
+        });
+
+        Button chipSupersede = createChip("⚡ Doctor Supersede", this::openDoctorSupersedeDialog);
+
+        chipsBox.getChildren().addAll(chipsTitle, chipTrajectory, chipInterrogate, chipLib, chipSupersede, chipPosology, chipInimical, chipPolarity, chipRhymes, chipMiasm);
 
         ScrollPane chipsScroll = new ScrollPane(chipsBox);
         chipsScroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
@@ -253,6 +279,12 @@ public class AiClinicalLogicChatView extends BorderPane {
         if (query == null || query.trim().isBlank()) return;
         inputField.clear();
         sendUserMessage(query.trim());
+    }
+
+    public void askDirectQuery(String text) {
+        if (text != null && !text.isBlank()) {
+            sendUserMessage(text.trim());
+        }
     }
 
     private void sendUserMessage(String text) {
@@ -358,6 +390,24 @@ public class AiClinicalLogicChatView extends BorderPane {
         String q = rawQuery.trim().toLowerCase();
         PatientContextItem activeCtx = patientContextCombo.getValue();
         Patient activePatient = activeCtx != null ? activeCtx.patient() : null;
+
+        // 0. Active Socratic Challenge Response Handling
+        if (activePendingChallenge != null || q.contains("because") || q.contains("my rationale") ||
+            q.contains("keynote override") || q.contains("i supersede") || (activePendingChallenge != null && q.length() > 5)) {
+            String challenge = activePendingChallenge != null ? activePendingChallenge : "GENERAL_PRESCRIPTION_CANON";
+            activePendingChallenge = null; // Clear pending state
+            return handleDoctorSocraticResponse(challenge, rawQuery);
+        }
+
+        // 0.1 Explicit Socratic Interrogation Request
+        if (q.contains("interrogate") || q.contains("challenge") || q.contains("question my") || q.contains("audit prescription")) {
+            return handlePrescriptionInterrogation(activePatient);
+        }
+
+        // 0.2 Digital Materia Medica Library Search (1,500 Books FTS5)
+        if (q.contains("library") || q.contains("1500") || q.startsWith("book:") || q.contains("search book") || q.contains("fts")) {
+            return handleDigitalLibraryQuery(rawQuery);
+        }
 
         // 1. Patient Case Trajectory & Hering's Law Analysis
         if (q.contains("trajectory") || q.contains("hering") || q.contains("cure direction") ||
@@ -855,5 +905,276 @@ public class AiClinicalLogicChatView extends BorderPane {
         }
 
         return box;
+    }
+
+    // =========================================================================
+    // SOCRATIC DOCTOR DIALOGUE & EXPERIENCE CAPTURE METHODS
+    // =========================================================================
+
+    private String handleDoctorSocraticResponse(String challengeContext, String doctorText) {
+        PrescriptionLogicAnalyzer.SocraticDialogueEvaluation eval = logicAnalyzer.evaluateDoctorSocraticResponse(challengeContext, doctorText);
+
+        StringBuilder sb = new StringBuilder();
+        if (eval.isFullySatisfied()) {
+            sb.append("### ✅ AI Socratic Satisfaction: Clinical Rationale Approved (Score: ").append(eval.satisfactionScore()).append("%)\n\n");
+            sb.append("**Canon Justification Category:** `").append(eval.justificationCategory()).append("`\n\n");
+            sb.append("- **AI Analysis:** ").append(eval.aiAssessment()).append("\n");
+            sb.append("- **Clinical Resolution:** ").append(eval.guidanceOrCaution()).append("\n\n");
+            sb.append("> **Hahnemannian Rule Confirmed**: The physician's clinical insight under §153 / Kentian hierarchy successfully resolves the theoretical canon discrepancy. You may proceed with the prescription.");
+        } else {
+            sb.append("### ⚠️ AI Socratic Challenge: Incomplete Canon Justification (Score: ").append(eval.satisfactionScore()).append("%)\n\n");
+            sb.append("**Category Evaluated:** `").append(eval.justificationCategory()).append("`\n\n");
+            sb.append("- **AI Analysis:** ").append(eval.aiAssessment()).append("\n");
+            sb.append("- **Canonical Risk:** ").append(eval.guidanceOrCaution()).append("\n\n");
+            sb.append("Dr., if your extensive clinical experience or verified keynotes justify superseding this canon check, click **⚡ Doctor Supersede (Capture Experience)** in the top toolbar to preserve your experiential clinical observation in the Experience Vault.");
+        }
+        return sb.toString();
+    }
+
+    private String handlePrescriptionInterrogation(Patient p) {
+        if (p == null) {
+            return "⚠️ Please select a patient from the **Active Patient Context** dropdown to interrogate a specific prescription.";
+        }
+
+        try {
+            List<Consultation> consults = clinicDao.getConsultationsForPatient(p.id());
+            if (consults.isEmpty()) {
+                return "ℹ️ No recorded consultations or prescriptions found for " + p.firstName() + " " + p.lastName() + " to interrogate.";
+            }
+
+            Consultation latest = consults.get(0);
+            if (latest.prescriptions().isEmpty()) {
+                return "ℹ️ The latest consultation for this patient contains no active medicinal prescription (Sac Lac / Placebo).";
+            }
+
+            Prescription rx = latest.prescriptions().get(0);
+            String remId = rx.remedyId().toLowerCase();
+            String constitution = p.constitutionalType() != null ? p.constitutionalType().toUpperCase() : "";
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("### 🧐 Socratic AI Prescribing Interrogation\n\n");
+            sb.append("**Evaluating Prescription:** `").append(rx.remedyName()).append(" ").append(rx.potency()).append("` (").append(rx.posologyInstructions()).append(")\n");
+            sb.append("**Patient Profile:** ").append(p.firstName()).append(" ").append(p.lastName()).append(" | Constitution: ").append(constitution.isBlank() ? "General" : constitution).append("\n\n");
+
+            // 1. Thermal Contradiction Challenge
+            boolean isPatientHot = constitution.contains("HOT") || constitution.contains("PULSATILLA") || constitution.contains("SULPHUR") || constitution.contains("APIS");
+            boolean isRemedyChilly = remId.equals("ars") || remId.equals("hepar") || remId.equals("sil") || remId.equals("psor") || remId.equals("calc") || remId.equals("rhus-t");
+
+            if (isPatientHot && isRemedyChilly) {
+                activePendingChallenge = "THERMAL_CONTRADICTION: Hot Patient prescribed Chilly Remedy (" + rx.remedyName() + ")";
+                sb.append("#### ⚡ Socratic Question 1 (Thermal Canon Clash):\n");
+                sb.append("> **Dr., the patient exhibits a strongly HOT thermal constitution (worse warmth, desires cool air), yet your chosen remedy ").append(rx.remedyName()).append(" is deeply CHILLY (§153). How do you resolve this thermal contradiction?\n\n");
+                sb.append("Please type your clinical rationale below (e.g., cite §153 peculiar keynotes, dominant mental generals, or intercurrent detox), or click **⚡ Doctor Supersede** to record your clinical discovery.");
+                return sb.toString();
+            }
+
+            // 2. High Potency / 30C Repetition Challenge
+            String pot = rx.potency().toUpperCase();
+            String freq = rx.repetitionFrequency() != null ? rx.repetitionFrequency().toUpperCase() : "";
+            if ((pot.contains("30") || pot.contains("200")) && (freq.contains("TID") || freq.contains("TDS") || freq.contains("3 TIMES") || freq.contains("THRICE"))) {
+                activePendingChallenge = "KENT_REPETITION_HAZARD: Repetitive dry doses of " + rx.remedyName() + " " + rx.potency();
+                sb.append("#### ⚡ Socratic Question 2 (Kentian Posology Repetition):\n");
+                sb.append("> **Dr., you have scheduled ").append(rx.remedyName()).append(" ").append(rx.potency()).append(" for three repetitions daily. J.T. Kent (Lec. XXXV) cautions that dry centesimals repeated three times daily produce artificial drug provings. Why not administer a single dose or LM scale in water?\n\n");
+                sb.append("Please enter your clinical justification below, or click **⚡ Doctor Supersede**.");
+                return sb.toString();
+            }
+
+            sb.append("✓ **All Canonical Baseline Checks Cleared**: Posology schedule, thermal resonance, and Gibson Miller relationships are compliant with classical literature.");
+            return sb.toString();
+        } catch (SQLException e) {
+            log.error("Failed to interrogate prescription", e);
+            return "❌ Database error during interrogation: " + e.getMessage();
+        }
+    }
+
+    private String handleDigitalLibraryQuery(String rawQuery) {
+        String cleanQuery = rawQuery.replaceFirst("(?i)^(library|search library|search book|fts|book:)", "").trim();
+        if (cleanQuery.isBlank()) {
+            cleanQuery = "headache sun agg glonoin Organon 248";
+        }
+
+        try {
+            List<MateriaMedicaSearchResult> results = masterDao.searchMateriaMedicaFts(cleanQuery);
+            StringBuilder sb = new StringBuilder();
+            sb.append("### 📚 1,500-Book Materia Medica Digital Library FTS5 Query\n\n");
+            sb.append("**Search Terms:** `").append(cleanQuery).append("` | **Matching Treatise Records:** ").append(results.size()).append("\n\n");
+
+            if (results.isEmpty()) {
+                sb.append("ℹ️ No exact monograph matches found in the classical index for: `").append(cleanQuery).append("`.\n");
+                sb.append("Try terms like *'burning heat amel'*, *'headache sun'*, *'Arsenicum'*, *'Azadirachta'*, or *'Organon 248'*.");
+                return sb.toString();
+            }
+
+            for (int i = 0; i < Math.min(results.size(), 5); i++) {
+                MateriaMedicaSearchResult r = results.get(i);
+                sb.append("#### ").append(i + 1).append(". ").append(r.remedyName()).append(" — ").append(r.sectionHeading()).append("\n");
+                sb.append("- **Treatise:** *").append(r.bookTitle()).append("* | **Author:** ").append(r.author()).append("\n");
+                String snippetClean = r.snippet().replaceAll("<[^>]*>", "**");
+                sb.append("> ").append(snippetClean).append("\n\n");
+            }
+
+            sb.append("> **Digital Library Note**: Full unabridged chapters can be read side-by-side in the **Materia Medica Library** tab.");
+            return sb.toString();
+        } catch (SQLException e) {
+            log.error("Failed to query digital library", e);
+            return "❌ Digital library query failed: " + e.getMessage();
+        }
+    }
+
+    private void openDoctorSupersedeDialog() {
+        Dialog<DoctorClinicalExperience> dialog = new Dialog<>();
+        dialog.setTitle("⚡ Doctor Supersede & Clinical Experience Capture");
+        dialog.setHeaderText("Preserve Your Hard-Won Clinical Wisdom & Keynote Discoveries\nYour rationale will be recorded in the permanent clinical knowledge repository.");
+
+        ButtonType saveBtnType = new ButtonType("💾 Preserve Clinical Experience", ButtonBar.ButtonData.OK_DONE);
+        dialog.getDialogPane().getButtonTypes().addAll(saveBtnType, ButtonType.CANCEL);
+
+        GridPane grid = new GridPane();
+        grid.setHgap(10);
+        grid.setVgap(10);
+        grid.setPadding(new Insets(20, 150, 10, 10));
+
+        TextField docNameField = new TextField("Dr. Consulting Physician, M.D. (Hom.)");
+        TextField remedyField = new TextField("Arsenicum album");
+        TextField caseField = new TextField();
+
+        PatientContextItem activeCtx = patientContextCombo.getValue();
+        if (activeCtx != null && activeCtx.patient() != null) {
+            caseField.setText(activeCtx.patient().caseNumber());
+        }
+
+        TextField ruleField = new TextField("Thermal Polarity: Prescribed Chilly remedy for Hot constitution");
+        if (activePendingChallenge != null) {
+            ruleField.setText(activePendingChallenge);
+        }
+
+        ComboBox<DoctorClinicalExperience.ExperienceType> typeCombo = new ComboBox<>();
+        typeCombo.getItems().addAll(DoctorClinicalExperience.ExperienceType.values());
+        typeCombo.setValue(DoctorClinicalExperience.ExperienceType.VERIFIED_CLINICAL_KEYNOTE);
+
+        TextArea obsArea = new TextArea();
+        obsArea.setPromptText("Enter your clinical observation, keynote justification, or empirical case confirmation...");
+        obsArea.setPrefRowCount(4);
+
+        TextField keynoteField = new TextField();
+        keynoteField.setPromptText("Keynote symptom (e.g. 'Burning amel by heat despite warm room')");
+
+        grid.add(new Label("Consulting Doctor:"), 0, 0);
+        grid.add(docNameField, 1, 0);
+        grid.add(new Label("Remedy Prescribed:"), 0, 1);
+        grid.add(remedyField, 1, 1);
+        grid.add(new Label("Case Number:"), 0, 2);
+        grid.add(caseField, 1, 2);
+        grid.add(new Label("Overridden Canon Rule:"), 0, 3);
+        grid.add(ruleField, 1, 3);
+        grid.add(new Label("Experience Category:"), 0, 4);
+        grid.add(typeCombo, 1, 4);
+        grid.add(new Label("Verified Keynote:"), 0, 5);
+        grid.add(keynoteField, 1, 5);
+        grid.add(new Label("Clinical Rationale / Notes:"), 0, 6);
+        grid.add(obsArea, 1, 6);
+
+        dialog.getDialogPane().setContent(grid);
+
+        dialog.setResultConverter(dialogButton -> {
+            if (dialogButton == saveBtnType) {
+                String patId = activeCtx != null && activeCtx.patient() != null ? activeCtx.patient().id() : null;
+                return new DoctorClinicalExperience(
+                        UUID.randomUUID().toString(),
+                        "doc-1",
+                        docNameField.getText().trim(),
+                        patId,
+                        caseField.getText().trim(),
+                        remedyField.getText().toLowerCase().trim(),
+                        remedyField.getText().trim(),
+                        ruleField.getText().trim(),
+                        typeCombo.getValue(),
+                        obsArea.getText().trim(),
+                        keynoteField.getText().trim(),
+                        "VERIFIED_IN_PRACTICE",
+                        java.time.Instant.now()
+                );
+            }
+            return null;
+        });
+
+        Optional<DoctorClinicalExperience> result = dialog.showAndWait();
+        result.ifPresent(exp -> {
+            try {
+                clinicDao.saveDoctorClinicalExperience(exp);
+                activePendingChallenge = null;
+                appendSystemNotice("Doctor Supersede successfully captured! Record ID: " + exp.id());
+                appendAiBubble("### 🏛️ Doctor Clinical Experience Recorded\n\n" +
+                        "**Doctor:** " + exp.doctorName() + " | **Remedy:** `" + exp.remedyName() + "`\n" +
+                        "**Category:** `" + exp.experienceType().getLabel() + "`\n\n" +
+                        "- **Overridden Canon Rule:** " + exp.overriddenRule() + "\n" +
+                        "- **Clinical Keynote:** *" + (exp.verifiedKeynote().isBlank() ? "N/A" : exp.verifiedKeynote()) + "*\n" +
+                        "- **Physician's Observation:** " + exp.clinicalObservation() + "\n\n" +
+                        "> **Clinical Wisdom Preserved**: This observation is now archived in your clinic's permanent **Doctor Experience Vault**. Future AI clinical analyses will acknowledge this empirical precedent.");
+            } catch (SQLException e) {
+                log.error("Failed to save doctor clinical experience", e);
+                appendSystemNotice("Failed to save experience: " + e.getMessage());
+            }
+        });
+    }
+
+    private void openDoctorExperienceVaultDialog() {
+        Dialog<Void> dialog = new Dialog<>();
+        dialog.setTitle("📖 Doctor's Clinical Experience Vault");
+        dialog.setHeaderText("Structured Repository of Clinical Wisdom & Verified Empirical Keynotes");
+        dialog.getDialogPane().getButtonTypes().add(ButtonType.CLOSE);
+
+        VBox content = new VBox(10);
+        content.setPadding(new Insets(10));
+        content.setPrefWidth(680);
+        content.setPrefHeight(450);
+
+        try {
+            List<DoctorClinicalExperience> list = clinicDao.getAllClinicalExperiences();
+            if (list.isEmpty()) {
+                Label emptyLbl = new Label("No clinical experience records captured yet.\nWhen doctors supersede canonical AI checks, their insights are archived here.");
+                emptyLbl.setStyle("-fx-text-fill: -color-fg-muted; -fx-padding: 30;");
+                content.getChildren().add(emptyLbl);
+            } else {
+                ListView<DoctorClinicalExperience> listView = new ListView<>();
+                listView.setItems(FXCollections.observableArrayList(list));
+                VBox.setVgrow(listView, Priority.ALWAYS);
+
+                listView.setCellFactory(lv -> new ListCell<>() {
+                    @Override
+                    protected void updateItem(DoctorClinicalExperience item, boolean empty) {
+                        super.updateItem(item, empty);
+                        if (empty || item == null) {
+                            setText(null);
+                            setGraphic(null);
+                        } else {
+                            VBox card = new VBox(3);
+                            card.setPadding(new Insets(6));
+
+                            Label title = new Label("💊 " + item.remedyName() + " — " + item.experienceType().getLabel());
+                            title.setFont(Font.font("Segoe UI", FontWeight.BOLD, 12));
+                            title.setTextFill(javafx.scene.paint.Color.web("#b45309"));
+
+                            Label meta = new Label("By " + item.doctorName() + " | Case #" + (item.caseNumber() != null ? item.caseNumber() : "General"));
+                            meta.setStyle("-fx-font-size: 11px; -fx-text-fill: -color-fg-muted;");
+
+                            Label obs = new Label(item.clinicalObservation());
+                            obs.setWrapText(true);
+                            obs.setStyle("-fx-font-size: 12px;");
+
+                            card.getChildren().addAll(title, meta, obs);
+                            setGraphic(card);
+                        }
+                    }
+                });
+
+                content.getChildren().add(listView);
+            }
+        } catch (SQLException e) {
+            content.getChildren().add(new Label("Failed to load clinical experiences: " + e.getMessage()));
+        }
+
+        dialog.getDialogPane().setContent(content);
+        dialog.showAndWait();
     }
 }

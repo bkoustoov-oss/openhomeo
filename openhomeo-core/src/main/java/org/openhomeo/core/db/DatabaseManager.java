@@ -35,6 +35,7 @@ public class DatabaseManager {
         this.clinicDbPath = new File(dataDir, "user_clinic.db").getAbsolutePath();
 
         ensureMasterDatabaseSeeded();
+        initializeMasterSchemaAndSeeding();
     }
 
     public synchronized void setEncryptionKey(String key) {
@@ -70,6 +71,14 @@ public class DatabaseManager {
             } catch (Exception e) {
                 log.error("Failed to copy bundled master_repertory.db", e);
             }
+        }
+    }
+
+    public void initializeMasterSchemaAndSeeding() {
+        try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + masterDbPath)) {
+            SynthesisAndLibrarySeeder.initializeAndSeedMaster(conn);
+        } catch (Exception e) {
+            log.error("Failed to initialize or seed master knowledge base additions/families/library", e);
         }
     }
 
@@ -274,6 +283,49 @@ public class DatabaseManager {
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """);
+
+            // Doctor Clinical Experience Vault (Structured Capture of Doctor Wisdom & Rule Supersedes)
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS doctor_clinical_experience (
+                    id TEXT PRIMARY KEY,
+                    doctor_id TEXT NOT NULL,
+                    doctor_name TEXT NOT NULL,
+                    patient_id TEXT,
+                    case_number TEXT,
+                    remedy_id TEXT NOT NULL,
+                    remedy_name TEXT NOT NULL,
+                    overridden_rule TEXT NOT NULL,
+                    experience_type TEXT NOT NULL,
+                    clinical_observation TEXT NOT NULL,
+                    verified_keynote TEXT,
+                    outcome_status TEXT DEFAULT 'PENDING_VERIFICATION',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """);
+            stmt.execute("CREATE INDEX IF NOT EXISTS idx_doc_exp_rem ON doctor_clinical_experience(remedy_id);");
+            stmt.execute("CREATE INDEX IF NOT EXISTS idx_doc_exp_doc ON doctor_clinical_experience(doctor_id);");
+            stmt.execute("CREATE INDEX IF NOT EXISTS idx_doc_exp_pat ON doctor_clinical_experience(patient_id);");
+
+            // WinChip Longitudinal Follow-Up & Kent's 12 Observations Evaluations
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS followup_evaluations (
+                    id TEXT PRIMARY KEY,
+                    consultation_id TEXT NOT NULL,
+                    patient_id TEXT NOT NULL,
+                    previous_consultation_id TEXT,
+                    kent_obs_number INTEGER NOT NULL,
+                    kent_obs_title TEXT NOT NULL,
+                    prognosis_summary TEXT NOT NULL,
+                    recommended_action TEXT NOT NULL,
+                    herings_law_score REAL DEFAULT 100.0,
+                    herings_direction_status TEXT NOT NULL,
+                    reactions_json TEXT NOT NULL,
+                    clinical_notes TEXT,
+                    evaluated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """);
+            stmt.execute("CREATE INDEX IF NOT EXISTS idx_foll_pat ON followup_evaluations(patient_id);");
+            stmt.execute("CREATE INDEX IF NOT EXISTS idx_foll_cons ON followup_evaluations(consultation_id);");
 
             // Pharmacy Medicine Inventory
             stmt.execute("""

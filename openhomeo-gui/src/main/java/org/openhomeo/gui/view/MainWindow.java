@@ -171,6 +171,10 @@ public class MainWindow {
 
         // Tab 7: Materia Medica Library
         mmView = new MateriaMedicaView(masterDao, clinicDao);
+        mmView.setOnConsultAiRequested(query -> {
+            mainTabPane.getSelectionModel().select(tabAiChat);
+            aiChatView.askDirectQuery(query);
+        });
         Tab tabMM = new Tab("Materia Medica Library", mmView);
 
         mainTabPane.getTabs().addAll(tabRep, tabCase, tabDossier, tabAiChat, tabPharmacy, tabImage, tabMM);

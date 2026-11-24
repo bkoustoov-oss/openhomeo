@@ -1998,4 +1998,178 @@ public class ClinicDao {
             ps.executeUpdate();
         }
     }
+
+    // =========================================================================
+    // DOCTOR CLINICAL EXPERIENCE VAULT (CAPTURING EXPERIENTIAL WISDOM)
+    // =========================================================================
+
+    public DoctorClinicalExperience saveDoctorClinicalExperience(DoctorClinicalExperience exp) throws SQLException {
+        String sql = """
+            INSERT INTO doctor_clinical_experience (
+                id, doctor_id, doctor_name, patient_id, case_number, remedy_id, remedy_name,
+                overridden_rule, experience_type, clinical_observation, verified_keynote, outcome_status, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        """;
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, exp.id());
+            ps.setString(2, exp.doctorId());
+            ps.setString(3, exp.doctorName());
+            ps.setString(4, exp.patientId());
+            ps.setString(5, exp.caseNumber());
+            ps.setString(6, exp.remedyId());
+            ps.setString(7, exp.remedyName());
+            ps.setString(8, exp.overriddenRule());
+            ps.setString(9, exp.experienceType().name());
+            ps.setString(10, exp.clinicalObservation());
+            ps.setString(11, exp.verifiedKeynote());
+            ps.setString(12, exp.outcomeStatus());
+            ps.setTimestamp(13, Timestamp.from(exp.createdAt() != null ? exp.createdAt() : Instant.now()));
+            ps.executeUpdate();
+        }
+        return exp;
+    }
+
+    public List<DoctorClinicalExperience> getAllClinicalExperiences() throws SQLException {
+        List<DoctorClinicalExperience> list = new ArrayList<>();
+        String sql = "SELECT * FROM doctor_clinical_experience ORDER BY created_at DESC";
+        try (Connection conn = dbManager.getClinicConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            while (rs.next()) {
+                list.add(mapClinicalExperience(rs));
+            }
+        }
+        return list;
+    }
+
+    public List<DoctorClinicalExperience> getExperiencesForRemedy(String remedyId) throws SQLException {
+        List<DoctorClinicalExperience> list = new ArrayList<>();
+        String sql = "SELECT * FROM doctor_clinical_experience WHERE LOWER(remedy_id) = ? OR LOWER(remedy_name) LIKE ? ORDER BY created_at DESC";
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, remedyId.toLowerCase().trim());
+            ps.setString(2, "%" + remedyId.toLowerCase().trim() + "%");
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    list.add(mapClinicalExperience(rs));
+                }
+            }
+        }
+        return list;
+    }
+
+    private DoctorClinicalExperience mapClinicalExperience(ResultSet rs) throws SQLException {
+        Timestamp ts = rs.getTimestamp("created_at");
+        return new DoctorClinicalExperience(
+                rs.getString("id"),
+                rs.getString("doctor_id"),
+                rs.getString("doctor_name"),
+                rs.getString("patient_id"),
+                rs.getString("case_number"),
+                rs.getString("remedy_id"),
+                rs.getString("remedy_name"),
+                rs.getString("overridden_rule"),
+                DoctorClinicalExperience.ExperienceType.valueOf(rs.getString("experience_type")),
+                rs.getString("clinical_observation"),
+                rs.getString("verified_keynote"),
+                rs.getString("outcome_status"),
+                ts != null ? ts.toInstant() : Instant.now()
+        );
+    }
+
+    // =========================================================================
+    // WINCHIP LONGITUDINAL FOLLOW-UP EVALUATIONS
+    // =========================================================================
+
+    public FollowUpEvaluation saveFollowUpEvaluation(FollowUpEvaluation eval) throws SQLException {
+        String sql = """
+            INSERT INTO followup_evaluations (
+                id, consultation_id, patient_id, previous_consultation_id, kent_obs_number,
+                kent_obs_title, prognosis_summary, recommended_action, herings_law_score,
+                herings_direction_status, reactions_json, clinical_notes, evaluated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        """;
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, UUID.randomUUID().toString());
+            ps.setString(2, eval.consultationId());
+            ps.setString(3, eval.patientId());
+            ps.setString(4, eval.previousConsultationId());
+            ps.setInt(5, eval.kentObservationNumber());
+            ps.setString(6, eval.kentObservationTitle());
+            ps.setString(7, eval.prognosisSummary());
+            ps.setString(8, eval.recommendedAction());
+            ps.setDouble(9, eval.heringsLawScore());
+            ps.setString(10, eval.heringsDirectionStatus());
+            ps.setString(11, serializeReactions(eval.reactions()));
+            ps.setString(12, eval.clinicalEvaluationNotes());
+            ps.setTimestamp(13, Timestamp.from(eval.evaluatedAt() != null ? eval.evaluatedAt() : Instant.now()));
+            ps.executeUpdate();
+        }
+        return eval;
+    }
+
+    public List<FollowUpEvaluation> getFollowUpEvaluationsForPatient(String patientId) throws SQLException {
+        List<FollowUpEvaluation> list = new ArrayList<>();
+        String sql = "SELECT * FROM followup_evaluations WHERE patient_id = ? ORDER BY evaluated_at DESC";
+        try (Connection conn = dbManager.getClinicConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, patientId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    list.add(mapFollowUpEvaluation(rs));
+                }
+            }
+        }
+        return list;
+    }
+
+    private FollowUpEvaluation mapFollowUpEvaluation(ResultSet rs) throws SQLException {
+        Timestamp ts = rs.getTimestamp("evaluated_at");
+        return new FollowUpEvaluation(
+                rs.getString("consultation_id"),
+                rs.getString("patient_id"),
+                rs.getString("previous_consultation_id"),
+                rs.getInt("kent_obs_number"),
+                rs.getString("kent_obs_title"),
+                rs.getString("prognosis_summary"),
+                rs.getString("recommended_action"),
+                rs.getDouble("herings_law_score"),
+                rs.getString("herings_direction_status"),
+                deserializeReactions(rs.getString("reactions_json")),
+                rs.getString("clinical_notes"),
+                ts != null ? ts.toInstant() : Instant.now()
+        );
+    }
+
+    private String serializeReactions(List<FollowUpEvaluation.SymptomReaction> reactions) {
+        if (reactions == null || reactions.isEmpty()) return "[]";
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < reactions.size(); i++) {
+            FollowUpEvaluation.SymptomReaction r = reactions.get(i);
+            if (i > 0) sb.append(",");
+            sb.append("{\"symptom\":\"").append(r.symptomText().replace("\"", "'")).append("\",")
+              .append("\"reaction\":\"").append(r.reactionType().name()).append("\",")
+              .append("\"notes\":\"").append(r.notes() != null ? r.notes().replace("\"", "'") : "").append("\"}");
+        }
+        sb.append("]");
+        return sb.toString();
+    }
+
+    private List<FollowUpEvaluation.SymptomReaction> deserializeReactions(String json) {
+        List<FollowUpEvaluation.SymptomReaction> list = new ArrayList<>();
+        if (json == null || json.isBlank() || json.equals("[]")) return list;
+        java.util.regex.Pattern p = java.util.regex.Pattern.compile("\"symptom\":\"([^\"]*)\",\"reaction\":\"([^\"]*)\",\"notes\":\"([^\"]*)\"");
+        java.util.regex.Matcher m = p.matcher(json);
+        while (m.find()) {
+            String sym = m.group(1);
+            String react = m.group(2);
+            String notes = m.group(3);
+            try {
+                list.add(new FollowUpEvaluation.SymptomReaction(sym, FollowUpEvaluation.ReactionType.valueOf(react), notes));
+            } catch (Exception ignored) {}
+        }
+        return list;
+    }
 }

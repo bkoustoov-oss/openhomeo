@@ -47,8 +47,8 @@ public class OtaUpdateService {
     private static final DateTimeFormatter LOCAL_DISPLAY_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z")
             .withZone(ZoneId.systemDefault());
 
-    public static final String CURRENT_VERSION = "1.0.0-Diamond (1,221 Verified Remedies)";
-    public static final String LATEST_AVAILABLE_VERSION = "1.1.0-Diamond+ (2026.11 Full Workstation Upgrade)";
+    public static final String CURRENT_VERSION = "1.1.0-Diamond+ (2026.11 Full Workstation Upgrade)";
+    public static final String LATEST_AVAILABLE_VERSION = "1.2.0-Diamond+ (Synthesis, 1,500-Book MM Library, Families & WinChip Upgrade)";
 
     private final String masterDbPath;
     private final String clinicDbPath;
@@ -109,9 +109,11 @@ public class OtaUpdateService {
                 String relDate = root.path("releaseDate").asText(LocalDate.now().toString());
                 int remedies = root.path("totalRemedies").asInt(1250);
                 String changelog = root.path("changelog").asText();
-                boolean updateAvailable = root.path("updateAvailable").asBoolean(true);
+                boolean manifestAvailable = root.path("updateAvailable").asBoolean(true);
+                boolean alreadyOnVersion = CURRENT_VERSION.trim().equalsIgnoreCase(title.trim()) || isPatchApplied(title);
+                boolean updateAvailable = manifestAvailable && !alreadyOnVersion;
 
-                log.info("Successfully retrieved live OTA manifest from GitHub: {}", title);
+                log.info("Successfully retrieved live OTA manifest from GitHub: {} (UpdateAvailable: {})", title, updateAvailable);
                 return new UpdateInfo(
                         updateAvailable,
                         CURRENT_VERSION,
@@ -123,29 +125,30 @@ public class OtaUpdateService {
                 );
             }
         } catch (Exception ex) {
-            log.info("Remote OTA manifest fetch note: {}. Using verified bundled v1.1.0 update manifest.", ex.getMessage());
+            log.info("Remote OTA manifest fetch note: {}. Using verified bundled v1.2.0 Diamond update manifest.", ex.getMessage());
         }
 
         // 2. Verified fallback manifest
+        boolean fallbackAvailable = !CURRENT_VERSION.trim().equalsIgnoreCase(LATEST_AVAILABLE_VERSION.trim()) && !isPatchApplied(LATEST_AVAILABLE_VERSION);
         return new UpdateInfo(
-                true,
+                fallbackAvailable,
                 CURRENT_VERSION,
                 LATEST_AVAILABLE_VERSION,
                 "2026-11-25",
-                1250,
+                1350,
                 """
-                • 🏛️ Clinic & Institution Registration Profile:
-                  Admin can register official institution name, medical license, address, hotline, credentials, and custom diet/regimen rules with live letterhead preview.
-                • 🩺 Enlisted Staff Governance:
-                  Full editing and delisting support for doctors, pharmacists, and clinic assistants directly from the admin workstation.
-                • 📄 Dynamic In-App Prescription Slips & PDF Export:
-                  All prescription slips and exported PDFs dynamically reflect the registered clinic name, address, and doctor credentials.
-                • 👥 360° Comprehensive Patient Records & Clinical Dossier:
-                  Master directory, constitutional profiles, vital signs, and clinical photography timeline.
-                • 🧠 Classical Homeopathic Logic AI Chat Engine (Strictly NO LLM):
-                  Deterministic reasoning on Organon §246-248, Kent posology, Gibson Miller relationships, and Boenninghausen polarities.
-                • 📦 Universal Standalone Packages (Windows & macOS):
-                  Zero-technicality standalone portable packages for Windows 10/11 and macOS (Apple Silicon & Intel).
+                • 🏛️ OpenSynthesis Repertory Scale:
+                  Scalable architecture with millions of additions, author citations (k1, b1, bog1, a1, c1, boer1, h1, her1, ccrh24), and cross-reference synonym networks.
+                • 📚 1,500-Book Materia Medica Digital Library (FTS5):
+                  Instant SQLite FTS5 BM25 search across classical treatises (Hahnemann, Kent, Boericke, Clarke, Nash, Hering, Boger, Allen, CCRH).
+                • 🌿 Families Tool:
+                  Taxonomical classification across Plant Kingdom (APG IV), Mineral Kingdom (Jan Scholten Periodic Table Series/Stages), Animal Kingdom, and Miasms with distribution charts.
+                • ⚖️ WinChip-Alike Patient Management Module:
+                  Longitudinal consultation comparison, automated Kent's 12 Observations evaluator, and Hering's Law directional cure tracker.
+                • 🧠 Upgraded Socratic Clinical Logic AI (Strictly NO LLM):
+                  Active Socratic questioning challenging thermal, miasmatic, and posological contradictions with doctor interrogation.
+                • ⚡ Doctor Supersede & Clinical Experience Capture:
+                  Structured preservation of the doctor's experiential clinical wisdom and verified keynotes into a permanent Experience Vault.
                 • 🛡️ 100% Non-Destructive Update Guarantee:
                   Patient clinic records (user_clinic.db) remain strictly preserved and untouched.
                 """,
@@ -253,11 +256,51 @@ public class OtaUpdateService {
             report.accept("[-] Migration note: " + ex.getMessage());
         }
 
-        // 6. Record Permanent Timestamped Patch Audit Log
+        // 6. Ensure Application Icon and Windows Desktop Shortcut
+        try {
+            File targetIco = new File(installDir, "openhomeo.ico");
+            if (!targetIco.exists()) {
+                File rootIco = new File("openhomeo.ico");
+                if (rootIco.exists()) {
+                    Files.copy(rootIco.toPath(), targetIco.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                } else {
+                    try (InputStream in = OtaUpdateService.class.getResourceAsStream("/icons/openhomeo.ico")) {
+                        if (in != null) {
+                            Files.copy(in, targetIco.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                        }
+                    }
+                }
+                report.accept("✓ Extracted application branding icon to: " + targetIco.getAbsolutePath());
+            }
+
+            if (System.getProperty("os.name", "").toLowerCase().contains("win")) {
+                String userProfile = System.getenv("USERPROFILE");
+                if (userProfile != null) {
+                    File shortcutFile = new File(userProfile + "\\Desktop\\OpenHomeo Workstation.lnk");
+                    if (shortcutFile.exists() && targetIco.exists()) {
+                        ProcessBuilder pb = new ProcessBuilder("powershell", "-NoProfile", "-Command",
+                                "$wsh = New-Object -ComObject WScript.Shell; " +
+                                "$s = $wsh.CreateShortcut('" + shortcutFile.getAbsolutePath().replace("'", "''") + "'); " +
+                                "$s.IconLocation = '" + targetIco.getAbsolutePath().replace("'", "''") + ",0'; " +
+                                "$s.Save(); " +
+                                "try { Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class ShellNotifier { [DllImport(\"shell32.dll\")] public static extern void SHChangeNotify(int wEventId, int uFlags, IntPtr dwItem1, IntPtr dwItem2); }'; [ShellNotifier]::SHChangeNotify(0x08000000, 0, [IntPtr]::Zero, [IntPtr]::Zero); } catch {}"
+                        );
+                        pb.redirectErrorStream(true);
+                        Process p = pb.start();
+                        p.waitFor();
+                        report.accept("✓ Refreshed desktop shortcut icon and notified Windows Explorer shell cache.");
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            report.accept("[-] Desktop shortcut icon note: " + ex.getMessage());
+        }
+
+        // 7. Record Permanent Timestamped Patch Audit Log
         report.accept("[6/6] Committing timestamped patch audit record to client machine...");
         String patchVersion = LATEST_AVAILABLE_VERSION;
         String user = (appliedBy != null && !appliedBy.isBlank()) ? appliedBy : "admin";
-        String summary = "Automated OTA Live System Upgrade: Clinic Institution Registration Profile, Staff Governance, Dynamic In-App Prescription Slips, 360° Patient Dossier, Classical Logic AI Chat (No LLM), and Master Catalog updates.";
+        String summary = "Automated OTA Live System Upgrade: OpenSynthesis Repertory scale, 1,500-Book FTS5 Digital MM Library, Families Tool & Taxonomy Classifier, WinChip-alike longitudinal follow-up, Socratic Clinical Logic AI (Strictly NO LLM), and Doctor Supersede permanent Experience Vault.";
 
         SystemPatchRecord patchRecord = new SystemPatchRecord(
                 UUID.randomUUID().toString(),

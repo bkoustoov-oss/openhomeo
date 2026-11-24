@@ -12,6 +12,7 @@ import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 import javafx.stage.FileChooser;
 import org.openhomeo.core.ai.EntryPointSuggestionEngine;
+import org.openhomeo.core.ai.FollowUpEvaluationEngine;
 import org.openhomeo.core.ai.PrescriptionLogicAnalyzer;
 import org.openhomeo.core.db.ClinicDao;
 import org.openhomeo.core.db.MasterKnowledgeDao;
@@ -56,11 +57,24 @@ public class CaseTakingView extends BorderPane {
     private final ImageVaultService imageVault;
     private final PrescriptionPdfService pdfService = new PrescriptionPdfService();
     private final EntryPointSuggestionEngine suggestionEngine = new EntryPointSuggestionEngine();
+    private final FollowUpEvaluationEngine followUpEngine = new FollowUpEvaluationEngine();
 
     // Patient & Doctor selection
     private final ComboBox<PatientItem> patientCombo;
     private final ComboBox<DoctorItem> doctorCombo;
     private final Label demographicsBanner;
+
+    // WinChip Longitudinal Follow-Up Controls
+    private VBox winChipFollowUpCard;
+    private Label winChipPriorRxLabel;
+    private ComboBox<FollowUpEvaluation.ReactionType> winChipReactionCombo;
+    private CheckBox winChipMentalAmelCheck;
+    private CheckBox winChipSkinDischargeCheck;
+    private CheckBox winChipWrongDirectionCheck;
+    private Label winChipKentBadge;
+    private Label winChipHeringsBadge;
+    private FollowUpEvaluation currentFollowUpEvaluation = null;
+    private Consultation previousConsultationForFollowUp = null;
 
     // Case Fields
     private final TextArea chiefComplaintArea;
@@ -354,6 +368,78 @@ public class CaseTakingView extends BorderPane {
         sugActions.getChildren().addAll(acceptSugBtn, supersedeBtn);
         suggestionCard.getChildren().addAll(sugTop, suggestionLabel, suggestionReasonLabel, sugActions);
 
+        // --- WinChip Longitudinal Follow-Up & Kent's 12 Observations Card ---
+        winChipFollowUpCard = new VBox(8);
+        winChipFollowUpCard.setPadding(new Insets(10, 12, 10, 12));
+        winChipFollowUpCard.setStyle("-fx-background-color: #f8fafc; -fx-border-color: #0284c7; -fx-border-radius: 8px;");
+        winChipFollowUpCard.setVisible(false);
+        winChipFollowUpCard.setManaged(false);
+
+        HBox winChipHead = new HBox(10);
+        winChipHead.setAlignment(Pos.CENTER_LEFT);
+        Label winChipTitle = new Label("⚖️ WinChip Longitudinal Follow-Up & Kent's 12 Observations Engine");
+        winChipTitle.setFont(Font.font("System", FontWeight.BOLD, 12));
+        winChipTitle.setTextFill(javafx.scene.paint.Color.web("#0369a1"));
+
+        Region wcSpacer = new Region();
+        HBox.setHgrow(wcSpacer, Priority.ALWAYS);
+
+        Button runEvalBtn = new Button("⚡ Evaluate Follow-Up Reactions");
+        runEvalBtn.getStyleClass().addAll(Styles.ACCENT, Styles.SMALL);
+        runEvalBtn.setOnAction(e -> evaluateWinChipFollowUp());
+
+        winChipHead.getChildren().addAll(winChipTitle, wcSpacer, runEvalBtn);
+
+        winChipPriorRxLabel = new Label("Prior Visit N-1 Prescription: None recorded");
+        winChipPriorRxLabel.setFont(Font.font("System", 11));
+        winChipPriorRxLabel.setStyle("-fx-text-fill: #475569;");
+
+        HBox reactionRow = new HBox(12);
+        reactionRow.setAlignment(Pos.CENTER_LEFT);
+        Label rxLbl = new Label("Follow-Up Reaction:");
+        rxLbl.setFont(Font.font("System", FontWeight.BOLD, 11));
+
+        winChipReactionCombo = new ComboBox<>();
+        winChipReactionCombo.getItems().addAll(FollowUpEvaluation.ReactionType.values());
+        winChipReactionCombo.setValue(FollowUpEvaluation.ReactionType.IMPROVED);
+        winChipReactionCombo.setCellFactory(lv -> new ListCell<>() {
+            @Override
+            protected void updateItem(FollowUpEvaluation.ReactionType item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? null : item.getDisplayLabel());
+            }
+        });
+        winChipReactionCombo.setButtonCell(new ListCell<>() {
+            @Override
+            protected void updateItem(FollowUpEvaluation.ReactionType item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? null : item.getDisplayLabel());
+            }
+        });
+
+        winChipMentalAmelCheck = new CheckBox("Mental cheerfulness / energy improved");
+        winChipMentalAmelCheck.setSelected(true);
+
+        winChipSkinDischargeCheck = new CheckBox("Dermal / surface eruption appeared (Within -> Outward)");
+
+        winChipWrongDirectionCheck = new CheckBox("Wrong direction / suppression warning");
+        winChipWrongDirectionCheck.setStyle("-fx-text-fill: #dc2626; -fx-font-weight: bold;");
+
+        reactionRow.getChildren().addAll(rxLbl, winChipReactionCombo, winChipMentalAmelCheck, winChipSkinDischargeCheck, winChipWrongDirectionCheck);
+
+        HBox badgeRow = new HBox(10);
+        badgeRow.setAlignment(Pos.CENTER_LEFT);
+
+        winChipKentBadge = new Label("Kent Observation: Not Evaluated");
+        winChipKentBadge.setStyle("-fx-background-color: #ecfdf5; -fx-text-fill: #065f46; -fx-padding: 3 8 3 8; -fx-background-radius: 4px; -fx-font-weight: bold; -fx-font-size: 11px;");
+
+        winChipHeringsBadge = new Label("Hering's Law: Pending Assessment");
+        winChipHeringsBadge.setStyle("-fx-background-color: #e0f2fe; -fx-text-fill: #0369a1; -fx-padding: 3 8 3 8; -fx-background-radius: 4px; -fx-font-weight: bold; -fx-font-size: 11px;");
+
+        badgeRow.getChildren().addAll(winChipKentBadge, winChipHeringsBadge);
+
+        winChipFollowUpCard.getChildren().addAll(winChipHead, winChipPriorRxLabel, reactionRow, badgeRow);
+
         heringsLawArea = new TextArea();
         heringsLawArea.setPromptText("Hering's Law Evaluation: Direction of cure progression (inside-out, above-downward)...");
         heringsLawArea.setPrefRowCount(2);
@@ -463,6 +549,7 @@ public class CaseTakingView extends BorderPane {
                 new Label("Physical Generals:"), physicalsArea,
                 pastMedCard,
                 suggestionCard,
+                winChipFollowUpCard,
                 new Label("Longitudinal Hering's Law Assessment:"), heringsLawArea,
                 prescPane,
                 actionBox
@@ -642,12 +729,89 @@ public class CaseTakingView extends BorderPane {
             if (!consults.isEmpty()) {
                 historyList.getSelectionModel().select(0);
                 loadConsultationIntoForm(consults.get(0));
+                previousConsultationForFollowUp = consults.get(0);
+                winChipFollowUpCard.setVisible(true);
+                winChipFollowUpCard.setManaged(true);
+                String rxInfo = previousConsultationForFollowUp.prescriptions().isEmpty()
+                        ? "Sac Lac (Placebo)"
+                        : previousConsultationForFollowUp.prescriptions().get(0).remedyName() + " " + previousConsultationForFollowUp.prescriptions().get(0).potency();
+                winChipPriorRxLabel.setText("Prior Visit N-1 (" + previousConsultationForFollowUp.consultDate().toString().substring(0, 10) +
+                        ") Chief Complaint: " + previousConsultationForFollowUp.chiefComplaint() + " | Rx: " + rxInfo);
             } else {
+                previousConsultationForFollowUp = null;
+                winChipFollowUpCard.setVisible(false);
+                winChipFollowUpCard.setManaged(false);
                 clearFormForNewConsultation();
             }
         } catch (Exception e) {
             log.error("Failed to load patient history", e);
         }
+    }
+
+    private void evaluateWinChipFollowUp() {
+        if (previousConsultationForFollowUp == null) {
+            statusLabel.setText("No prior consultation available for longitudinal comparison.");
+            return;
+        }
+
+        FollowUpEvaluation.ReactionType rxType = winChipReactionCombo.getValue();
+        boolean mentalAmel = winChipMentalAmelCheck.isSelected();
+        boolean skinDischarge = winChipSkinDischargeCheck.isSelected();
+        boolean wrongDir = winChipWrongDirectionCheck.isSelected();
+
+        FollowUpEvaluation.SymptomReaction r = new FollowUpEvaluation.SymptomReaction(
+                previousConsultationForFollowUp.chiefComplaint(),
+                rxType,
+                "Longitudinal follow-up reaction scored by physician"
+        );
+
+        FollowUpEvaluationEngine.EvaluationOutcome outcome = followUpEngine.evaluateFollowUp(
+                List.of(r),
+                mentalAmel,
+                skinDischarge,
+                wrongDir,
+                14
+        );
+
+        winChipKentBadge.setText("Kent: " + outcome.kentObservationTitle());
+        winChipHeringsBadge.setText(String.format("Hering: %.0f%% (%s)", outcome.heringsLawScore(), outcome.heringsDirectionStatus()));
+
+        if (outcome.heringsDirectionStatus().equals("SUPPRESSION_WARNING")) {
+            winChipKentBadge.setStyle("-fx-background-color: #fee2e2; -fx-text-fill: #991b1b; -fx-padding: 3 8 3 8; -fx-background-radius: 4px; -fx-font-weight: bold; -fx-font-size: 11px;");
+            winChipHeringsBadge.setStyle("-fx-background-color: #fee2e2; -fx-text-fill: #991b1b; -fx-padding: 3 8 3 8; -fx-background-radius: 4px; -fx-font-weight: bold; -fx-font-size: 11px;");
+        } else {
+            winChipKentBadge.setStyle("-fx-background-color: #ecfdf5; -fx-text-fill: #065f46; -fx-padding: 3 8 3 8; -fx-background-radius: 4px; -fx-font-weight: bold; -fx-font-size: 11px;");
+            winChipHeringsBadge.setStyle("-fx-background-color: #e0f2fe; -fx-text-fill: #0369a1; -fx-padding: 3 8 3 8; -fx-background-radius: 4px; -fx-font-weight: bold; -fx-font-size: 11px;");
+        }
+
+        String evaluationText = String.format("""
+            [WinChip Longitudinal Evaluation - %s]
+            %s
+            • Prognosis: %s
+            • Action: %s
+            • Direction of Cure Score: %.0f%% (%s)
+            """,
+                LocalDate.now(), outcome.kentObservationTitle(), outcome.prognosisSummary(),
+                outcome.recommendedAction(), outcome.heringsLawScore(), outcome.heringsDirectionStatus());
+
+        heringsLawArea.setText(evaluationText);
+
+        PatientItem sel = patientCombo.getValue();
+        String patId = sel != null ? sel.patient.id() : "";
+        currentFollowUpEvaluation = new FollowUpEvaluation(
+                UUID.randomUUID().toString(),
+                patId,
+                previousConsultationForFollowUp.id(),
+                outcome.kentObservationNumber(),
+                outcome.kentObservationTitle(),
+                outcome.prognosisSummary(),
+                outcome.recommendedAction(),
+                outcome.heringsLawScore(),
+                outcome.heringsDirectionStatus(),
+                List.of(r),
+                outcome.clinicalRationale(),
+                Instant.now()
+        );
     }
 
     private void loadConsultationIntoForm(Consultation c) {
@@ -1282,6 +1446,15 @@ public class CaseTakingView extends BorderPane {
             );
 
             clinicDao.saveConsultation(c);
+
+            if (currentFollowUpEvaluation != null) {
+                try {
+                    clinicDao.saveFollowUpEvaluation(currentFollowUpEvaluation);
+                    currentFollowUpEvaluation = null;
+                } catch (Exception ex) {
+                    log.warn("Could not save followup evaluation: {}", ex.getMessage());
+                }
+            }
 
             // Automatically dispatch order and invoice to Dispensary Pharmacy & Billing POS
             if (!prescriptions.isEmpty()) {
