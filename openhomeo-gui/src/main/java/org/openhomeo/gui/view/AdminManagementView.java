@@ -28,6 +28,9 @@ import java.io.File;
 import java.nio.file.Files;
 import java.sql.SQLException;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -88,10 +91,16 @@ public class AdminManagementView extends BorderPane {
     private Label lblPreviewSigTitle;
 
     private Label statusLabel;
+    private Runnable onUpdateAppliedCallback;
 
     public AdminManagementView(ClinicDao clinicDao, SecurityService securityService) {
+        this(clinicDao, securityService, null);
+    }
+
+    public AdminManagementView(ClinicDao clinicDao, SecurityService securityService, Runnable onUpdateAppliedCallback) {
         this.clinicDao = clinicDao;
         this.securityService = securityService;
+        this.onUpdateAppliedCallback = onUpdateAppliedCallback;
 
         File clinicDb = new File(clinicDao.getDatabaseManager().getClinicDbPath());
         File vaultDir = new File(clinicDb.getParentFile(), "vault");
@@ -1488,21 +1497,21 @@ public class AdminManagementView extends BorderPane {
         HBox cardsRow = new HBox(12);
         cardsRow.setAlignment(Pos.CENTER_LEFT);
 
-        VBox cardCurrent = createStatusCard(
+        StatusCardView cardCurrent = new StatusCardView(
                 "🖥️ Current Workstation Version",
                 OtaUpdateService.CURRENT_VERSION,
                 "Java 21 LTS • Panama FFM Rust SIMD Native Core",
                 "#0284c7"
         );
 
-        VBox cardRelease = createStatusCard(
+        StatusCardView cardRelease = new StatusCardView(
                 "🌐 Official Release Channel",
                 OtaUpdateService.LATEST_AVAILABLE_VERSION,
                 "Release: 2026.11 • Master Catalog: 1,221 Verified Remedies",
                 "#059669"
         );
 
-        VBox cardEnv = createStatusCard(
+        StatusCardView cardEnv = new StatusCardView(
                 "📁 Self-Detected Installation Environment",
                 installDir.getName(),
                 "Target: " + installDir.getAbsolutePath(),
@@ -1567,9 +1576,13 @@ public class AdminManagementView extends BorderPane {
         colType.setCellValueFactory(c -> new SimpleStringProperty(c.getValue().patchType()));
         colType.setPrefWidth(140);
 
-        TableColumn<SystemPatchRecord, String> colTime = new TableColumn<>("Applied Date & Timestamp");
-        colTime.setCellValueFactory(c -> new SimpleStringProperty(c.getValue().appliedAt() != null ? c.getValue().appliedAt().toString().replace("T", " ").substring(0, 19) : "—"));
-        colTime.setPrefWidth(160);
+        TableColumn<SystemPatchRecord, String> colTime = new TableColumn<>("Applied Date & Timestamp (Local)");
+        colTime.setCellValueFactory(c -> {
+            Instant inst = c.getValue().appliedAt();
+            if (inst == null) return new SimpleStringProperty("—");
+            return new SimpleStringProperty(OtaUpdateService.formatLocalTimestamp(inst));
+        });
+        colTime.setPrefWidth(210);
 
         TableColumn<SystemPatchRecord, String> colBy = new TableColumn<>("Applied By");
         colBy.setCellValueFactory(c -> new SimpleStringProperty(c.getValue().appliedBy()));
@@ -1589,10 +1602,43 @@ public class AdminManagementView extends BorderPane {
 
         patchTable.getColumns().addAll(colVer, colType, colTime, colBy, colHash, colStatus, colSummary);
 
+        // Row double-click to view complete audit trail details
+        patchTable.setRowFactory(tv -> {
+            TableRow<SystemPatchRecord> row = new TableRow<>();
+            row.setOnMouseClicked(event -> {
+                if (event.getClickCount() == 2 && (!row.isEmpty())) {
+                    showPatchRecordDetailDialog(row.getItem());
+                }
+            });
+            return row;
+        });
+
+        Button btnViewPatch = new Button("📄 View Selected Patch Details & Execution Log");
+        btnViewPatch.getStyleClass().add(Styles.BUTTON_OUTLINED);
+        btnViewPatch.setOnAction(e -> {
+            SystemPatchRecord sel = patchTable.getSelectionModel().getSelectedItem();
+            if (sel != null) {
+                showPatchRecordDetailDialog(sel);
+            } else {
+                showNotification("Please select a patch row from the table to view details.");
+            }
+        });
+
+        HBox historyHeader = new HBox(12, historyTitle, new Region(), btnViewPatch);
+        HBox.setHgrow(historyHeader.getChildren().get(1), Priority.ALWAYS);
+        historyHeader.setAlignment(Pos.CENTER_LEFT);
+
         Runnable refreshHistory = () -> {
             try {
                 List<SystemPatchRecord> list = otaService.getPatchHistory();
                 patchTable.setItems(FXCollections.observableArrayList(list));
+                if (!list.isEmpty()) {
+                    SystemPatchRecord latest = list.get(0);
+                    cardCurrent.update(
+                            latest.version(),
+                            "Applied Locally: " + OtaUpdateService.formatLocalTimestamp(latest.appliedAt())
+                    );
+                }
             } catch (Exception ex) {
                 log.warn("Could not query patch history: {}", ex.getMessage());
             }
@@ -1619,13 +1665,22 @@ public class AdminManagementView extends BorderPane {
                 progressStatusLabel.setText("Check complete");
 
                 OtaUpdateService.UpdateInfo info = checkTask.getValue();
-                otaLog.appendText("\n\n[OTA CHECK] " + Instant.now() + "\n" +
+                String localCheckTime = ZonedDateTime.now(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z"));
+                otaLog.appendText("\n\n[OTA CHECK] " + localCheckTime + "\n" +
                         "Latest Version: " + info.latestVersion() + "\n" +
                         "Update Available: " + (info.updateAvailable() ? "YES (Ready to Download & Apply)" : "NO (Installed version is up to date)") + "\n" +
                         "Release Date: " + info.releaseDate() + " | Master Catalog: " + info.totalRemedies() + " verified remedies\n" +
                         "Changelog:\n" + info.changelog() + "\n" +
                         "Safety Guarantee: " + info.safetyNotice() + "\n");
-                showNotification("OTA Status: Live Update Available: " + info.latestVersion());
+
+                boolean alreadyApplied = otaService.isPatchApplied(info.latestVersion());
+                if (info.updateAvailable() && !alreadyApplied) {
+                    statusLabel.setText("🔴 OTA Update Available: " + info.latestVersion() + " (Originated: " + info.releaseDate() + ")");
+                    statusLabel.setStyle("-fx-background-color: #fee2e2; -fx-text-fill: #991b1b; -fx-border-color: #ef4444; -fx-border-radius: 4; -fx-font-weight: bold; -fx-padding: 3 8;");
+                } else {
+                    statusLabel.setText("✓ OTA Status: Up to date (" + info.latestVersion() + ")");
+                    statusLabel.setStyle("-fx-background-color: #f0fdf4; -fx-text-fill: #166534; -fx-border-color: #86efac; -fx-border-radius: 4; -fx-font-weight: bold; -fx-padding: 3 8;");
+                }
             });
 
             checkTask.setOnFailed(evt -> {
@@ -1675,15 +1730,33 @@ public class AdminManagementView extends BorderPane {
                     refreshInstitutionProfile();
                     refreshAllData();
 
+                    if (onUpdateAppliedCallback != null) {
+                        try {
+                            onUpdateAppliedCallback.run();
+                        } catch (Exception ex) {
+                            log.warn("Could not notify update callback: {}", ex.getMessage());
+                        }
+                    }
+
+                    String appliedLocalTime = OtaUpdateService.formatLocalTimestamp(Instant.now());
+
                     Alert alert = new Alert(Alert.AlertType.INFORMATION);
                     alert.setTitle("System Update Applied Successfully");
                     alert.setHeaderText("🎉 OpenHomeo " + res.version() + " Installed");
                     alert.setContentText(
                             "The automated live update has been applied smoothly.\n\n" +
-                            "• New Features Activated: Clinic & Institution Registration Profile, Enlisted Staff Governance (Edit/Delist Doctors, Pharmacists & Assistants), Dynamic In-App Prescription Slips, 360° Patient Dossier, Classical Logic AI Chat (No LLM), and Master Catalog updates.\n" +
-                            "• Non-Destructive Guarantee: All patient records, consultations, and prescriptions in user_clinic.db are 100% intact.\n" +
+                            "• Patch Release / Originated Date: 2026-11-25\n" +
+                            "• Applied Date & Local Timestamp: " + appliedLocalTime + "\n\n" +
+                            "• Activated Changes & Commented Details:\n" +
+                            "  1. 🏛️ Clinic & Institution Registration Profile (letterhead branding, custom credentials & diet rules)\n" +
+                            "  2. 🩺 Enlisted Staff Governance (live editing & delisting of Doctors, Pharmacists & Assistants)\n" +
+                            "  3. 📄 Dynamic In-App Prescription Slips & Letterhead PDF Export\n" +
+                            "  4. 👥 360° Comprehensive Patient Records & Clinical Dossier\n" +
+                            "  5. 🧠 Deterministic Classical Homeopathic Logic AI Chat Engine (Strictly NO LLM)\n" +
+                            "  6. 📦 Universal Standalone Packages (Windows 10/11 & macOS Apple Silicon/Intel)\n\n" +
+                            "• 🛡️ 100% Non-Destructive Invariant: All patient records, consultations, and prescriptions in user_clinic.db are 100% intact.\n" +
                             "• Verified SHA-256 Hash: " + res.hash() + "\n\n" +
-                            "A permanent audit record has been timestamped in your client database."
+                            "A permanent audit record with your local timestamp (" + appliedLocalTime + ") has been recorded in your client database."
                     );
                     alert.showAndWait();
                 } else {
@@ -1724,7 +1797,7 @@ public class AdminManagementView extends BorderPane {
             }
         });
 
-        historySection.getChildren().addAll(historyTitle, patchTable);
+        historySection.getChildren().addAll(historyHeader, patchTable);
 
         content.getChildren().addAll(
                 secTitle, safetyBadge, cardsRow, actionsRow, terminalBox, historySection
@@ -1734,23 +1807,95 @@ public class AdminManagementView extends BorderPane {
         return pane;
     }
 
-    private VBox createStatusCard(String title, String mainValue, String subValue, String accentHex) {
-        VBox card = new VBox(4);
-        card.setStyle("-fx-background-color: -color-bg-subtle; -fx-padding: 10 14; -fx-border-color: -color-border-subtle; -fx-border-radius: 8; -fx-background-radius: 8; -fx-border-width: 1 1 1 4; -fx-border-color: " + accentHex + " -color-border-subtle -color-border-subtle " + accentHex + ";");
+    private void showPatchRecordDetailDialog(SystemPatchRecord rec) {
+        Dialog<Void> dialog = new Dialog<>();
+        dialog.setTitle("Patch Audit Trail Details");
+        dialog.setHeaderText("📜 Permanent Client Machine Patch Audit Record");
 
-        Label t = new Label(title);
-        t.setStyle("-fx-font-weight: bold; -fx-font-size: 11px; -fx-text-fill: -color-fg-muted;");
+        VBox box = new VBox(12);
+        box.setPadding(new Insets(14));
+        box.setPrefWidth(680);
 
-        Label v = new Label(mainValue);
-        v.setFont(Font.font("Segoe UI", FontWeight.BOLD, 14));
-        v.setStyle("-fx-text-fill: " + accentHex + ";");
+        GridPane grid = new GridPane();
+        grid.setHgap(12);
+        grid.setVgap(6);
+        grid.setStyle("-fx-background-color: -color-bg-subtle; -fx-padding: 12; -fx-border-color: -color-border-subtle; -fx-border-radius: 6;");
 
-        Label s = new Label(subValue);
-        s.setWrapText(true);
-        s.setStyle("-fx-font-size: 11px; -fx-text-fill: -color-fg-muted;");
+        grid.add(new Label("Installed Patch Version:"), 0, 0);
+        Label lblVer = new Label(rec.version());
+        lblVer.setStyle("-fx-font-weight: bold; -fx-text-fill: #0284c7;");
+        grid.add(lblVer, 1, 0);
 
-        card.getChildren().addAll(t, v, s);
-        return card;
+        grid.add(new Label("Patch Type:"), 0, 1);
+        grid.add(new Label(rec.patchType()), 1, 1);
+
+        grid.add(new Label("Originated / Release Date:"), 0, 2);
+        grid.add(new Label(rec.releaseDate()), 1, 2);
+
+        grid.add(new Label("Applied Date & Local Timestamp:"), 0, 3);
+        String localTime = OtaUpdateService.formatLocalTimestamp(rec.appliedAt());
+        Label lblTime = new Label(localTime);
+        lblTime.setStyle("-fx-font-weight: bold; -fx-text-fill: #166534;");
+        grid.add(lblTime, 1, 3);
+
+        grid.add(new Label("Applied By Operator:"), 0, 4);
+        grid.add(new Label(rec.appliedBy()), 1, 4);
+
+        grid.add(new Label("Integrity Status:"), 0, 5);
+        Label lblStatus = new Label(rec.status());
+        lblStatus.setStyle("-fx-font-weight: bold; -fx-text-fill: #166534;");
+        grid.add(lblStatus, 1, 5);
+
+        grid.add(new Label("SHA-256 Checksum:"), 0, 6);
+        Label lblHash = new Label(rec.repertoryHash());
+        lblHash.setStyle("-fx-font-family: monospace; -fx-font-size: 11px;");
+        grid.add(lblHash, 1, 6);
+
+        Label lblSummTitle = new Label("Changelog Summary & Commented Enhancements:");
+        lblSummTitle.setFont(Font.font("Segoe UI", FontWeight.BOLD, 12));
+        Label lblSumm = new Label(rec.changelogSummary());
+        lblSumm.setWrapText(true);
+        lblSumm.setStyle("-fx-padding: 6 0; -fx-font-size: 12px;");
+
+        Label lblLogTitle = new Label("Full Execution & Non-Destructive Migration Log:");
+        lblLogTitle.setFont(Font.font("Segoe UI", FontWeight.BOLD, 12));
+        TextArea txtLog = new TextArea(rec.executionLog());
+        txtLog.setEditable(false);
+        txtLog.setPrefRowCount(8);
+        txtLog.setStyle("-fx-font-family: 'Consolas', 'Courier New', monospace; -fx-font-size: 11px; -fx-control-inner-background: #0f172a; -fx-text-fill: #38bdf8;");
+
+        box.getChildren().addAll(grid, lblSummTitle, lblSumm, lblLogTitle, txtLog);
+        dialog.getDialogPane().setContent(box);
+        dialog.getDialogPane().getButtonTypes().add(ButtonType.CLOSE);
+        dialog.showAndWait();
+    }
+
+    private static class StatusCardView extends VBox {
+        private final Label mainLabel;
+        private final Label subLabel;
+
+        StatusCardView(String title, String mainValue, String subValue, String accentHex) {
+            super(4);
+            setStyle("-fx-background-color: -color-bg-subtle; -fx-padding: 10 14; -fx-border-color: -color-border-subtle; -fx-border-radius: 8; -fx-background-radius: 8; -fx-border-width: 1 1 1 4; -fx-border-color: " + accentHex + " -color-border-subtle -color-border-subtle " + accentHex + ";");
+
+            Label t = new Label(title);
+            t.setStyle("-fx-font-weight: bold; -fx-font-size: 11px; -fx-text-fill: -color-fg-muted;");
+
+            mainLabel = new Label(mainValue);
+            mainLabel.setFont(Font.font("Segoe UI", FontWeight.BOLD, 14));
+            mainLabel.setStyle("-fx-text-fill: " + accentHex + ";");
+
+            subLabel = new Label(subValue);
+            subLabel.setWrapText(true);
+            subLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: -color-fg-muted;");
+
+            getChildren().addAll(t, mainLabel, subLabel);
+        }
+
+        void update(String mainValue, String subValue) {
+            mainLabel.setText(mainValue);
+            subLabel.setText(subValue);
+        }
     }
 
     private Node createProvingIngestionPane() {

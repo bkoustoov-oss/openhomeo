@@ -4,17 +4,23 @@ import atlantafx.base.theme.PrimerDark;
 import atlantafx.base.theme.PrimerLight;
 import atlantafx.base.theme.Styles;
 import javafx.application.Application;
+import javafx.application.Platform;
+import javafx.concurrent.Task;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Parent;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
+import javafx.scene.text.Font;
+import javafx.scene.text.FontWeight;
 import javafx.stage.Stage;
 import org.openhomeo.core.db.ClinicDao;
 import org.openhomeo.core.db.MasterKnowledgeDao;
 import org.openhomeo.core.image.ImageVaultService;
 import org.openhomeo.core.model.Rubric;
+import org.openhomeo.core.model.SystemPatchRecord;
 import org.openhomeo.core.model.User;
+import org.openhomeo.core.ota.OtaUpdateService;
 import org.openhomeo.core.repertory.RepertorizationEngine;
 import org.openhomeo.core.repertory.SymptomClipboard;
 import org.openhomeo.core.security.SecurityService;
@@ -25,7 +31,12 @@ import org.slf4j.LoggerFactory;
 import java.awt.Desktop;
 import java.net.URI;
 import java.net.InetAddress;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Primary Workstation Window Layout coordinating the multi-tab workspace,
@@ -61,6 +72,7 @@ public class MainWindow {
     private ListView<String> searchResultsList;
     private TreeView<String> rubricTreeView;
     private HBox clipboardBadgeBox;
+    private Button otaNotificationBtn;
     private MobileCompanionServer companionServer;
 
     public MainWindow(Stage stage,
@@ -178,7 +190,7 @@ public class MainWindow {
         if (securityService.getCurrentSession() != null) {
             User u = securityService.getCurrentSession().user();
             if (u.role() == User.UserRole.ADMIN) {
-                AdminManagementView adminView = new AdminManagementView(clinicDao, securityService);
+                AdminManagementView adminView = new AdminManagementView(clinicDao, securityService, this::checkOtaUpdatesAsync);
                 Tab tabAdmin = new Tab("Admin Management", adminView);
                 mainTabPane.getTabs().add(tabAdmin);
                 mainTabPane.getSelectionModel().select(tabAdmin);
@@ -193,6 +205,9 @@ public class MainWindow {
         HBox header = createHeader();
         root.setTop(header);
         root.setCenter(mainTabPane);
+
+        // Check for updates asynchronously on workstation launch
+        checkOtaUpdatesAsync();
     }
 
     private HBox createHeader() {
@@ -277,8 +292,268 @@ public class MainWindow {
             }
         });
 
-        header.getChildren().addAll(brand, new Separator(), searchField, searchBtn, new Separator(), clipboardBadgeBox, spacer, navDossierBtn, navAiBtn, companionBtn, feedbackBtn, userLabel, themeToggle, lockBtn);
+        // Global Red Update Notification Button (unmissable across all user workstations)
+        otaNotificationBtn = new Button("⏳ Checking Updates...");
+        otaNotificationBtn.setVisible(false);
+        otaNotificationBtn.setManaged(false);
+
+        header.getChildren().addAll(brand, new Separator(), searchField, searchBtn, new Separator(), clipboardBadgeBox, spacer, otaNotificationBtn, navDossierBtn, navAiBtn, companionBtn, feedbackBtn, userLabel, themeToggle, lockBtn);
         return header;
+    }
+
+    public void checkOtaUpdatesAsync() {
+        Task<OtaUpdateService.UpdateInfo> task = new Task<>() {
+            @Override
+            protected OtaUpdateService.UpdateInfo call() {
+                OtaUpdateService ota = new OtaUpdateService("master_repertory.db", "user_clinic.db", clinicDao);
+                return ota.checkForUpdates();
+            }
+        };
+
+        task.setOnSucceeded(e -> {
+            OtaUpdateService.UpdateInfo info = task.getValue();
+            Platform.runLater(() -> renderOtaNotificationBadge(info));
+        });
+
+        task.setOnFailed(e -> {
+            log.warn("Background OTA update check error: {}", task.getException().getMessage());
+        });
+
+        Thread t = new Thread(task, "openhomeo-header-ota-check");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    private void renderOtaNotificationBadge(OtaUpdateService.UpdateInfo info) {
+        if (otaNotificationBtn == null || info == null) return;
+
+        OtaUpdateService ota = new OtaUpdateService("master_repertory.db", "user_clinic.db", clinicDao);
+        Optional<SystemPatchRecord> latestPatch = ota.getLatestAppliedPatch();
+        boolean isApplied = latestPatch.isPresent() && latestPatch.get().version().trim().equalsIgnoreCase(info.latestVersion().trim());
+
+        if (info.updateAvailable() && !isApplied) {
+            // PROMINENT RED NOTIFICATION FOR INSTALLED USERS WITH COMMENTED DETAILS
+            String shortVer = info.latestVersion().split(" ")[0].replace("-Diamond+", "");
+            otaNotificationBtn.setText("🔴 UPDATE AVAILABLE: " + shortVer + " (Originated: " + info.releaseDate() + ")");
+            otaNotificationBtn.setStyle("-fx-background-color: #fee2e2; -fx-text-fill: #991b1b; -fx-border-color: #ef4444; -fx-border-width: 1.5; -fx-border-radius: 6; -fx-background-radius: 6; -fx-font-weight: bold; -fx-font-size: 12px; -fx-cursor: hand; -fx-padding: 4 10;");
+            otaNotificationBtn.setTooltip(new Tooltip("OVER-THE-AIR WORKSTATION UPDATE AVAILABLE!\nVersion: " + info.latestVersion() + "\nOriginated: " + info.releaseDate() + "\nClick to view commented details and apply update."));
+            otaNotificationBtn.setOnAction(evt -> showUpdateAvailableModal(info));
+            otaNotificationBtn.setVisible(true);
+            otaNotificationBtn.setManaged(true);
+        } else if (latestPatch.isPresent()) {
+            // SYSTEM ACTIVE & UP TO DATE WITH LOCAL TIME
+            SystemPatchRecord rec = latestPatch.get();
+            String localTime = OtaUpdateService.formatLocalTimestamp(rec.appliedAt());
+            String shortVer = rec.version().split(" ")[0].replace("-Diamond+", "");
+            otaNotificationBtn.setText("✓ v" + shortVer + " Active (" + localTime + ")");
+            otaNotificationBtn.setStyle("-fx-background-color: #f0fdf4; -fx-text-fill: #166534; -fx-border-color: #86efac; -fx-border-width: 1; -fx-border-radius: 6; -fx-background-radius: 6; -fx-font-weight: bold; -fx-font-size: 11px; -fx-cursor: hand; -fx-padding: 4 10;");
+            otaNotificationBtn.setTooltip(new Tooltip("Workstation is up-to-date with latest verified release.\nInstalled Version: " + rec.version() + "\nOriginated: " + rec.releaseDate() + "\nApplied Locally: " + localTime + "\nClick to view active patch details & changelog."));
+            otaNotificationBtn.setOnAction(evt -> showPatchDetailsModal(info, rec));
+            otaNotificationBtn.setVisible(true);
+            otaNotificationBtn.setManaged(true);
+        } else {
+            otaNotificationBtn.setText("✓ Workstation Up-to-Date");
+            otaNotificationBtn.setStyle("-fx-background-color: #f8fafc; -fx-text-fill: #475569; -fx-border-color: #cbd5e1; -fx-border-radius: 6; -fx-background-radius: 6; -fx-padding: 4 10;");
+            otaNotificationBtn.setVisible(true);
+            otaNotificationBtn.setManaged(true);
+        }
+    }
+
+    private void showUpdateAvailableModal(OtaUpdateService.UpdateInfo info) {
+        Dialog<Void> dialog = new Dialog<>();
+        dialog.setTitle("OpenHomeo Over-The-Air Update Available");
+        dialog.setHeaderText("🔴 OVER-THE-AIR WORKSTATION & KNOWLEDGE BASE UPDATE");
+
+        VBox box = new VBox(12);
+        box.setPadding(new Insets(14));
+        box.setPrefWidth(680);
+
+        HBox banner = new HBox(10);
+        banner.setAlignment(Pos.CENTER_LEFT);
+        banner.setStyle("-fx-background-color: #fef2f2; -fx-border-color: #f87171; -fx-border-radius: 6; -fx-background-radius: 6; -fx-padding: 10 14;");
+        Label redDot = new Label("🔴");
+        redDot.setFont(Font.font("Segoe UI", FontWeight.BOLD, 18));
+        VBox bannerTexts = new VBox(2);
+        Label bannerTitle = new Label("New Official Upgrade Available: " + info.latestVersion());
+        bannerTitle.setFont(Font.font("Segoe UI", FontWeight.BOLD, 13));
+        bannerTitle.setStyle("-fx-text-fill: #991b1b;");
+
+        String localTimeNow = ZonedDateTime.now(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z"));
+        Label bannerMeta = new Label("Originated / Release Date: " + info.releaseDate() + "  |  Local Workstation Time: " + localTimeNow + "  |  Catalog: " + info.totalRemedies() + " Remedies");
+        bannerMeta.setStyle("-fx-font-size: 11px; -fx-text-fill: #7f1d1d; -fx-font-weight: bold;");
+        bannerTexts.getChildren().addAll(bannerTitle, bannerMeta);
+        banner.getChildren().addAll(redDot, bannerTexts);
+
+        Label detailsTitle = new Label("📋 What Are The Changes & Commented Details in this Update:");
+        detailsTitle.setFont(Font.font("Segoe UI", FontWeight.BOLD, 13));
+
+        TextArea changelogArea = new TextArea(info.changelog());
+        changelogArea.setEditable(false);
+        changelogArea.setWrapText(true);
+        changelogArea.setPrefRowCount(10);
+        changelogArea.setStyle("-fx-font-family: 'Segoe UI', sans-serif; -fx-font-size: 12px; -fx-control-inner-background: #ffffff; -fx-text-fill: #1e293b;");
+
+        Label safetyLbl = new Label("🛡️ 100% Non-Destructive Update Guarantee:\nYour local patient records, consultation histories, encrypted clinical photographs, prescriptions, and billing data in user_clinic.db are STRICTLY PRESERVED and will NEVER be touched or modified.");
+        safetyLbl.setWrapText(true);
+        safetyLbl.setStyle("-fx-background-color: #f0fdf4; -fx-text-fill: #166534; -fx-padding: 10 14; -fx-border-color: #86efac; -fx-border-radius: 6; -fx-background-radius: 6; -fx-font-weight: bold; -fx-font-size: 11px;");
+
+        HBox actionBox = new HBox(10);
+        actionBox.setAlignment(Pos.CENTER_LEFT);
+
+        ProgressBar pBar = new ProgressBar();
+        pBar.setVisible(false);
+        pBar.setPrefWidth(200);
+
+        Label pStatus = new Label();
+        pStatus.setStyle("-fx-font-size: 11px; -fx-text-fill: #0284c7;");
+
+        boolean isAdmin = securityService.getCurrentSession() != null
+                && securityService.getCurrentSession().user().role() == User.UserRole.ADMIN;
+
+        if (isAdmin) {
+            Button btnApply = new Button("🚀 Download & Apply Live Update Now (Automated)");
+            btnApply.getStyleClass().addAll(Styles.BUTTON_OUTLINED, Styles.SUCCESS);
+            btnApply.setFont(Font.font("Segoe UI", FontWeight.BOLD, 13));
+            btnApply.setOnAction(evt -> {
+                btnApply.setDisable(true);
+                pBar.setVisible(true);
+                pBar.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
+                pStatus.setText("Applying live update...");
+
+                String currentUser = securityService.getCurrentSession().user().username();
+                OtaUpdateService ota = new OtaUpdateService("master_repertory.db", "user_clinic.db", clinicDao);
+
+                Task<OtaUpdateService.ApplyResult> applyTask = new Task<>() {
+                    @Override
+                    protected OtaUpdateService.ApplyResult call() {
+                        return ota.applyLiveUpdateAutomated(msg -> {
+                            Platform.runLater(() -> pStatus.setText(msg.replaceAll("\\[\\d/\\d\\] ", "")));
+                        }, currentUser);
+                    }
+                };
+                applyTask.setOnSucceeded(e -> {
+                    pBar.setVisible(false);
+                    OtaUpdateService.ApplyResult res = applyTask.getValue();
+                    if (res.success()) {
+                        dialog.close();
+                        checkOtaUpdatesAsync();
+
+                        Alert successAlert = new Alert(Alert.AlertType.INFORMATION);
+                        successAlert.setTitle("System Update Applied Successfully");
+                        successAlert.setHeaderText("🎉 OpenHomeo " + res.version() + " Installed");
+
+                        String appliedLocalTime = OtaUpdateService.formatLocalTimestamp(Instant.now());
+                        successAlert.setContentText(
+                                "The automated live update has been applied smoothly to your workstation.\n\n" +
+                                "• Patch Release / Originated Date: " + info.releaseDate() + "\n" +
+                                "• Applied Date & Local Timestamp: " + appliedLocalTime + "\n\n" +
+                                "• Activated Changes & Commented Enhancements:\n" +
+                                "  1. 🏛️ Clinic & Institution Registration Profile (letterhead branding & regimen)\n" +
+                                "  2. 🩺 Enlisted Staff Governance (edit & delist Doctors, Pharmacists, Assistants)\n" +
+                                "  3. 📄 Dynamic In-App Prescription Slips & Letterhead PDF Export\n" +
+                                "  4. 👥 360° Comprehensive Patient Records & Clinical Dossier\n" +
+                                "  5. 🧠 Classical Homeopathic Logic AI Chat Engine (Strictly NO LLM)\n" +
+                                "  6. 📦 Universal Standalone Packages (Windows 10/11 & macOS)\n\n" +
+                                "• 🛡️ Non-Destructive Invariant Confirmed: All patient cases and prescriptions in user_clinic.db are 100% safe and intact.\n" +
+                                "• Verified SHA-256 Checksum: " + res.hash() + "\n\n" +
+                                "A permanent client audit entry with your local workstation timestamp (" + appliedLocalTime + ") has been recorded."
+                        );
+                        successAlert.showAndWait();
+                    } else {
+                        btnApply.setDisable(false);
+                        pStatus.setText("Update failed: " + res.message());
+                    }
+                });
+                applyTask.setOnFailed(e -> {
+                    btnApply.setDisable(false);
+                    pBar.setVisible(false);
+                    pStatus.setText("Update failed: " + applyTask.getException().getMessage());
+                });
+                new Thread(applyTask, "openhomeo-ota-modal-apply").start();
+            });
+            actionBox.getChildren().addAll(btnApply, pBar, pStatus);
+        } else {
+            Label clinicianNote = new Label("🔒 Clinician Account Note: Only Administrator accounts can execute system updates.\nPlease notify your clinic administrator, or log in as Admin to apply.");
+            clinicianNote.setStyle("-fx-text-fill: #9a3412; -fx-font-weight: bold; -fx-font-size: 11px;");
+            actionBox.getChildren().add(clinicianNote);
+        }
+
+        box.getChildren().addAll(banner, detailsTitle, changelogArea, safetyLbl, actionBox);
+        dialog.getDialogPane().setContent(box);
+        dialog.getDialogPane().getButtonTypes().add(ButtonType.CLOSE);
+        dialog.showAndWait();
+    }
+
+    private void showPatchDetailsModal(OtaUpdateService.UpdateInfo info, SystemPatchRecord rec) {
+        Dialog<Void> dialog = new Dialog<>();
+        dialog.setTitle("Active System Patch Details");
+        dialog.setHeaderText("OpenHomeo Workstation - Active System & Knowledge Patch");
+
+        VBox box = new VBox(12);
+        box.setPadding(new Insets(14));
+        box.setPrefWidth(680);
+
+        HBox banner = new HBox(10);
+        banner.setAlignment(Pos.CENTER_LEFT);
+        banner.setStyle("-fx-background-color: #f0fdf4; -fx-border-color: #86efac; -fx-border-radius: 6; -fx-background-radius: 6; -fx-padding: 10 14;");
+        Label checkIcon = new Label("✓");
+        checkIcon.setFont(Font.font("Segoe UI", FontWeight.BOLD, 18));
+        checkIcon.setStyle("-fx-text-fill: #166534;");
+
+        VBox bannerTexts = new VBox(2);
+        Label bannerTitle = new Label("Active Installed Version: " + rec.version());
+        bannerTitle.setFont(Font.font("Segoe UI", FontWeight.BOLD, 13));
+        bannerTitle.setStyle("-fx-text-fill: #166534;");
+
+        String localApplied = OtaUpdateService.formatLocalTimestamp(rec.appliedAt());
+        Label bannerMeta = new Label("Originated / Release Date: " + rec.releaseDate() + "  |  Applied Locally: " + localApplied + "  |  Operator: " + rec.appliedBy());
+        bannerMeta.setStyle("-fx-font-size: 11px; -fx-text-fill: #14532d; -fx-font-weight: bold;");
+        bannerTexts.getChildren().addAll(bannerTitle, bannerMeta);
+        banner.getChildren().addAll(checkIcon, bannerTexts);
+
+        Label detailsTitle = new Label("📋 Active Features & Commented Improvements in this Release:");
+        detailsTitle.setFont(Font.font("Segoe UI", FontWeight.BOLD, 13));
+
+        TextArea changelogArea = new TextArea(info != null ? info.changelog() : rec.changelogSummary());
+        changelogArea.setEditable(false);
+        changelogArea.setWrapText(true);
+        changelogArea.setPrefRowCount(9);
+        changelogArea.setStyle("-fx-font-family: 'Segoe UI', sans-serif; -fx-font-size: 12px; -fx-control-inner-background: #ffffff; -fx-text-fill: #1e293b;");
+
+        GridPane auditGrid = new GridPane();
+        auditGrid.setHgap(10);
+        auditGrid.setVgap(4);
+        auditGrid.setStyle("-fx-background-color: #f8fafc; -fx-padding: 8 12; -fx-border-color: #e2e8f0; -fx-border-radius: 6;");
+
+        auditGrid.add(new Label("Integrity Status:"), 0, 0);
+        Label lblStatus = new Label(rec.status());
+        lblStatus.setStyle("-fx-font-weight: bold; -fx-text-fill: #166534;");
+        auditGrid.add(lblStatus, 1, 0);
+
+        auditGrid.add(new Label("SHA-256 Checksum:"), 0, 1);
+        Label lblHash = new Label(rec.repertoryHash());
+        lblHash.setStyle("-fx-font-family: monospace; -fx-font-size: 11px;");
+        auditGrid.add(lblHash, 1, 1);
+
+        auditGrid.add(new Label("Local Applied Time:"), 0, 2);
+        Label lblTime = new Label(localApplied);
+        lblTime.setStyle("-fx-font-weight: bold;");
+        auditGrid.add(lblTime, 1, 2);
+
+        HBox btnRow = new HBox(10);
+        btnRow.setAlignment(Pos.CENTER_LEFT);
+        Button btnCheckAgain = new Button("🔍 Check for Newer Updates");
+        btnCheckAgain.getStyleClass().add(Styles.BUTTON_OUTLINED);
+        btnCheckAgain.setOnAction(evt -> {
+            dialog.close();
+            checkOtaUpdatesAsync();
+        });
+        btnRow.getChildren().add(btnCheckAgain);
+
+        box.getChildren().addAll(banner, detailsTitle, changelogArea, auditGrid, btnRow);
+        dialog.getDialogPane().setContent(box);
+        dialog.getDialogPane().getButtonTypes().add(ButtonType.CLOSE);
+        dialog.showAndWait();
     }
 
     private void showCommunityFeedbackDialog() {

@@ -21,6 +21,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.function.Consumer;
@@ -32,7 +34,7 @@ import java.util.function.Consumer;
  * Clinicians remain completely abstract of technicalities (file paths, sqlite databases, git commands).
  * The engine auto-detects installation directories, handles safe file staging, takes rollback backups,
  * verifies SHA-256 integrity, executes non-destructive schema migrations, and logs every patch to a
- * permanent client-side audit ledger.
+ * permanent client-side audit ledger with local timezone accuracy.
  *
  * STRICT NON-DESTRUCTIVE SAFETY INVARIANT:
  * Local clinic databases (user_clinic.db), patient EMR, clinical image vaults, and doctor settings
@@ -40,7 +42,10 @@ import java.util.function.Consumer;
  */
 public class OtaUpdateService {
     private static final Logger log = LoggerFactory.getLogger(OtaUpdateService.class);
-    private static final DateTimeFormatter LOG_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final DateTimeFormatter LOG_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z")
+            .withZone(ZoneId.systemDefault());
+    private static final DateTimeFormatter LOCAL_DISPLAY_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z")
+            .withZone(ZoneId.systemDefault());
 
     public static final String CURRENT_VERSION = "1.0.0-Diamond (1,221 Verified Remedies)";
     public static final String LATEST_AVAILABLE_VERSION = "1.1.0-Diamond+ (2026.11 Full Workstation Upgrade)";
@@ -155,7 +160,7 @@ public class OtaUpdateService {
     public ApplyResult applyLiveUpdateAutomated(Consumer<String> progressListener, String appliedBy) {
         StringBuilder fullLog = new StringBuilder();
         Consumer<String> report = msg -> {
-            String timestamped = "[" + LocalDateTime.now().format(LOG_FMT) + "] " + msg;
+            String timestamped = "[" + ZonedDateTime.now(ZoneId.systemDefault()).format(LOG_FMT) + "] " + msg;
             fullLog.append(timestamped).append("\n");
             if (progressListener != null) {
                 progressListener.accept(timestamped);
@@ -307,7 +312,7 @@ public class OtaUpdateService {
         }
 
         StringBuilder fullLog = new StringBuilder();
-        fullLog.append("[").append(LocalDateTime.now().format(LOG_FMT)).append("] Applying offline update package: ").append(packageFile.getName()).append("\n");
+        fullLog.append("[").append(ZonedDateTime.now(ZoneId.systemDefault()).format(LOG_FMT)).append("] Applying offline update package: ").append(packageFile.getName()).append("\n");
 
         try {
             // 1. Create rollback backup next to master repertory
@@ -375,6 +380,34 @@ public class OtaUpdateService {
             log.error("Could not fetch patch history", e);
             return Collections.emptyList();
         }
+    }
+
+    /**
+     * Formats an Instant into the user's local workstation timezone with zone abbreviation (e.g. 2026-11-25 02:47:32 IST).
+     */
+    public static String formatLocalTimestamp(Instant instant) {
+        if (instant == null) return "—";
+        return LOCAL_DISPLAY_FMT.format(instant);
+    }
+
+    /**
+     * Retrieves the most recent successfully applied patch record from client database.
+     */
+    public Optional<SystemPatchRecord> getLatestAppliedPatch() {
+        List<SystemPatchRecord> list = getPatchHistory();
+        return list.stream()
+                .filter(p -> "APPLIED_SUCCESS".equalsIgnoreCase(p.status()))
+                .findFirst();
+    }
+
+    /**
+     * Checks if a specific version title has already been successfully applied on this client workstation.
+     */
+    public boolean isPatchApplied(String versionTitle) {
+        if (versionTitle == null || versionTitle.isBlank()) return false;
+        return getLatestAppliedPatch()
+                .map(p -> p.version().trim().equalsIgnoreCase(versionTitle.trim()))
+                .orElse(false);
     }
 
     /**
