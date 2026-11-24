@@ -475,12 +475,22 @@ public class DatabaseManager {
                 CREATE TABLE IF NOT EXISTS ota_update_history (
                     id TEXT PRIMARY KEY,
                     version TEXT NOT NULL,
+                    patch_type TEXT DEFAULT 'SYSTEM_UPGRADE',
                     release_date TEXT,
                     repertory_hash TEXT,
                     status TEXT NOT NULL,
+                    applied_by TEXT DEFAULT 'admin',
+                    changelog_summary TEXT,
+                    execution_log TEXT,
                     applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """);
+
+            // Non-destructive column additions for existing client databases
+            try { stmt.execute("ALTER TABLE ota_update_history ADD COLUMN patch_type TEXT DEFAULT 'SYSTEM_UPGRADE';"); } catch (SQLException ignored) {}
+            try { stmt.execute("ALTER TABLE ota_update_history ADD COLUMN applied_by TEXT DEFAULT 'admin';"); } catch (SQLException ignored) {}
+            try { stmt.execute("ALTER TABLE ota_update_history ADD COLUMN changelog_summary TEXT;"); } catch (SQLException ignored) {}
+            try { stmt.execute("ALTER TABLE ota_update_history ADD COLUMN execution_log TEXT;"); } catch (SQLException ignored) {}
 
             // Seed default doctor if none exists
             try (ResultSet rs = stmt.executeQuery("SELECT count(*) FROM doctors")) {

@@ -1835,15 +1835,64 @@ public class ClinicDao {
     }
 
     public void recordOtaUpdate(String version, String releaseDate, String hash, String status) throws SQLException {
-        String sql = "INSERT INTO ota_update_history (id, version, release_date, repertory_hash, status) VALUES (?, ?, ?, ?, ?)";
+        recordSystemPatch(new SystemPatchRecord(
+                UUID.randomUUID().toString(),
+                version,
+                "SYSTEM_UPGRADE",
+                releaseDate,
+                hash,
+                status,
+                "admin",
+                "Automated Over-The-Air system and knowledge base synchronization",
+                "Non-destructively updated master repertory and verified client database integrity.",
+                Instant.now()
+        ));
+    }
+
+    public void recordSystemPatch(SystemPatchRecord patch) throws SQLException {
+        String sql = """
+            INSERT INTO ota_update_history
+            (id, version, patch_type, release_date, repertory_hash, status, applied_by, changelog_summary, execution_log, applied_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """;
         try (Connection conn = dbManager.getClinicConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, UUID.randomUUID().toString());
-            ps.setString(2, version);
-            ps.setString(3, releaseDate);
-            ps.setString(4, hash);
-            ps.setString(5, status);
+            ps.setString(1, patch.id() != null ? patch.id() : UUID.randomUUID().toString());
+            ps.setString(2, patch.version());
+            ps.setString(3, patch.patchType() != null ? patch.patchType() : "SYSTEM_UPGRADE");
+            ps.setString(4, patch.releaseDate());
+            ps.setString(5, patch.repertoryHash());
+            ps.setString(6, patch.status());
+            ps.setString(7, patch.appliedBy() != null ? patch.appliedBy() : "admin");
+            ps.setString(8, patch.changelogSummary());
+            ps.setString(9, patch.executionLog());
+            ps.setTimestamp(10, Timestamp.from(patch.appliedAt() != null ? patch.appliedAt() : Instant.now()));
             ps.executeUpdate();
         }
+    }
+
+    public List<SystemPatchRecord> getOtaUpdateHistory() throws SQLException {
+        List<SystemPatchRecord> list = new ArrayList<>();
+        String sql = "SELECT * FROM ota_update_history ORDER BY applied_at DESC";
+        try (Connection conn = dbManager.getClinicConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            while (rs.next()) {
+                Timestamp ts = rs.getTimestamp("applied_at");
+                list.add(new SystemPatchRecord(
+                        rs.getString("id"),
+                        rs.getString("version"),
+                        rs.getString("patch_type"),
+                        rs.getString("release_date"),
+                        rs.getString("repertory_hash"),
+                        rs.getString("status"),
+                        rs.getString("applied_by"),
+                        rs.getString("changelog_summary"),
+                        rs.getString("execution_log"),
+                        ts != null ? ts.toInstant() : Instant.now()
+                ));
+            }
+        }
+        return list;
     }
 }

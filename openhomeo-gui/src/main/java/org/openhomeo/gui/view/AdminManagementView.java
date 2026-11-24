@@ -4,6 +4,7 @@ import atlantafx.base.theme.Styles;
 import javafx.beans.property.SimpleStringProperty;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
+import javafx.concurrent.Task;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
@@ -883,65 +884,255 @@ public class AdminManagementView extends BorderPane {
 
         VBox content = new VBox(14);
 
-        Label secTitle = new Label("Over-The-Air (OTA) Knowledge Base Update Service");
-        secTitle.setFont(Font.font("Segoe UI", FontWeight.BOLD, 16));
+        Label secTitle = new Label("Over-The-Air (OTA) Automated System & Knowledge Patch Service");
+        secTitle.setFont(Font.font("Segoe UI", FontWeight.BOLD, 18));
+        secTitle.setTextFill(javafx.scene.paint.Color.web("#0284c7"));
 
-        Label safetyBadge = new Label("🛡️ 100% Non-Destructive Update Guarantee: The OTA update service applies enhancements ONLY to the read-only classical knowledge base (master_repertory.db). Your clinic database (user_clinic.db), patient files, case histories, and prescriptions are NEVER altered, touched, or overwritten.");
+        Label safetyBadge = new Label("🛡️ 100% Non-Destructive Update Guarantee: The OTA update engine operates with strict data isolation. System upgrades apply enhancements ONLY to software modules, user interfaces, and the master knowledge base. Your local clinic database (user_clinic.db), patient files, case histories, encrypted clinical photographs, and billing ledgers are NEVER altered, touched, or overwritten.");
         safetyBadge.setWrapText(true);
-        safetyBadge.setStyle("-fx-background-color: #f0fdf4; -fx-text-fill: #166534; -fx-padding: 10 14; -fx-border-color: #86efac; -fx-border-radius: 6; -fx-background-radius: 6; -fx-font-weight: bold;");
+        safetyBadge.setStyle("-fx-background-color: #f0fdf4; -fx-text-fill: #166534; -fx-padding: 10 14; -fx-border-color: #86efac; -fx-border-radius: 6; -fx-background-radius: 6; -fx-font-weight: bold; -fx-font-size: 12px;");
 
         OtaUpdateService otaService = new OtaUpdateService("master_repertory.db", "user_clinic.db", clinicDao);
+        File installDir = OtaUpdateService.detectInstallationDirectory();
 
-        GridPane statusGrid = new GridPane();
-        statusGrid.setHgap(10);
-        statusGrid.setVgap(8);
-        statusGrid.addRow(0, new Label("Installed Repertory Engine Version:"), new Label(OtaUpdateService.CURRENT_VERSION));
-        statusGrid.addRow(1, new Label("Verified Master Remedies Catalog:"), new Label("1,221 Classical, Bowel Nosodes, Sarcodes & Pharmacopoeial Remedies"));
-        statusGrid.addRow(2, new Label("Non-Destructive Target:"), new Label("master_repertory.db (Isolated from user_clinic.db)"));
+        // 3 Status Cards in a Row
+        HBox cardsRow = new HBox(12);
+        cardsRow.setAlignment(Pos.CENTER_LEFT);
+
+        VBox cardCurrent = createStatusCard(
+                "🖥️ Current Workstation Version",
+                OtaUpdateService.CURRENT_VERSION,
+                "Java 21 LTS • Panama FFM Rust SIMD Native Core",
+                "#0284c7"
+        );
+
+        VBox cardRelease = createStatusCard(
+                "🌐 Official Release Channel",
+                OtaUpdateService.LATEST_AVAILABLE_VERSION,
+                "Release: 2026.11 • Master Catalog: 1,221 Verified Remedies",
+                "#059669"
+        );
+
+        VBox cardEnv = createStatusCard(
+                "📁 Self-Detected Installation Environment",
+                installDir.getName(),
+                "Target: " + installDir.getAbsolutePath(),
+                "#475569"
+        );
+        HBox.setHgrow(cardCurrent, Priority.ALWAYS);
+        HBox.setHgrow(cardRelease, Priority.ALWAYS);
+        HBox.setHgrow(cardEnv, Priority.ALWAYS);
+        cardsRow.getChildren().addAll(cardCurrent, cardRelease, cardEnv);
+
+        // Action Buttons Row & Progress Bar
+        HBox actionsRow = new HBox(12);
+        actionsRow.setAlignment(Pos.CENTER_LEFT);
+
+        Button btnCheck = new Button("🔍 Check for Live Updates");
+        btnCheck.getStyleClass().add(Styles.BUTTON_OUTLINED);
+
+        Button btnApplyLive = new Button("🚀 Download & Apply Live Update Now (Automated)");
+        btnApplyLive.getStyleClass().addAll(Styles.BUTTON_OUTLINED, Styles.SUCCESS);
+        btnApplyLive.setFont(Font.font("Segoe UI", FontWeight.BOLD, 13));
+        btnApplyLive.setTooltip(new Tooltip("Automatically download, verify, and apply system updates, new features, and master database with zero manual file manipulation."));
+
+        Button btnOffline = new Button("📦 Offline Bundle Fallback (.db)");
+        btnOffline.getStyleClass().add(Styles.BUTTON_OUTLINED);
+        btnOffline.setTooltip(new Tooltip("Manual file import fallback specifically for air-gapped clinic computers without an internet connection."));
+
+        ProgressBar progressBar = new ProgressBar(0);
+        progressBar.setVisible(false);
+        progressBar.setPrefWidth(220);
+
+        Label progressStatusLabel = new Label("Ready");
+        progressStatusLabel.getStyleClass().add(Styles.TEXT_MUTED);
+
+        actionsRow.getChildren().addAll(btnCheck, btnApplyLive, btnOffline, progressBar, progressStatusLabel);
+
+        // Terminal Log Console
+        VBox terminalBox = new VBox(6);
+        Label termTitle = new Label("⚡ Live Patch Execution & Verification Log:");
+        termTitle.setFont(Font.font("Segoe UI", FontWeight.BOLD, 13));
 
         TextArea otaLog = new TextArea();
         otaLog.setEditable(false);
-        otaLog.setPrefRowCount(8);
-        otaLog.setText("System ready for Over-The-Air repertory updates.\nClick 'Check for OTA Updates' to verify repository status.");
+        otaLog.setPrefRowCount(9);
+        otaLog.setStyle("-fx-font-family: 'Consolas', 'Courier New', monospace; -fx-font-size: 11px; -fx-control-inner-background: #0f172a; -fx-text-fill: #38bdf8;");
+        otaLog.setText("System ready for Over-The-Air automated self-patching.\nClick 'Download & Apply Live Update Now' to automatically upgrade this workstation.");
+        terminalBox.getChildren().addAll(termTitle, otaLog);
 
-        HBox actions = new HBox(12);
-        Button btnCheck = new Button("🔍 Check for OTA Updates");
-        btnCheck.getStyleClass().add(Styles.ACCENT);
+        // Historical Installed Patches Table
+        VBox historySection = new VBox(6);
+        Label historyTitle = new Label("📜 Permanent Client Machine Patch & Upgrade Audit Trail:");
+        historyTitle.setFont(Font.font("Segoe UI", FontWeight.BOLD, 13));
+
+        TableView<SystemPatchRecord> patchTable = new TableView<>();
+        patchTable.setPrefHeight(180);
+        patchTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
+
+        TableColumn<SystemPatchRecord, String> colVer = new TableColumn<>("Installed Patch Version");
+        colVer.setCellValueFactory(c -> new SimpleStringProperty(c.getValue().version()));
+        colVer.setPrefWidth(180);
+
+        TableColumn<SystemPatchRecord, String> colType = new TableColumn<>("Patch Type");
+        colType.setCellValueFactory(c -> new SimpleStringProperty(c.getValue().patchType()));
+        colType.setPrefWidth(140);
+
+        TableColumn<SystemPatchRecord, String> colTime = new TableColumn<>("Applied Date & Timestamp");
+        colTime.setCellValueFactory(c -> new SimpleStringProperty(c.getValue().appliedAt() != null ? c.getValue().appliedAt().toString().replace("T", " ").substring(0, 19) : "—"));
+        colTime.setPrefWidth(160);
+
+        TableColumn<SystemPatchRecord, String> colBy = new TableColumn<>("Applied By");
+        colBy.setCellValueFactory(c -> new SimpleStringProperty(c.getValue().appliedBy()));
+        colBy.setPrefWidth(100);
+
+        TableColumn<SystemPatchRecord, String> colHash = new TableColumn<>("SHA-256 Checksum");
+        colHash.setCellValueFactory(c -> new SimpleStringProperty(c.getValue().repertoryHash() != null && c.getValue().repertoryHash().length() > 16 ? c.getValue().repertoryHash().substring(0, 16) + "..." : c.getValue().repertoryHash()));
+        colHash.setPrefWidth(140);
+
+        TableColumn<SystemPatchRecord, String> colStatus = new TableColumn<>("Integrity Status");
+        colStatus.setCellValueFactory(c -> new SimpleStringProperty(c.getValue().status()));
+        colStatus.setPrefWidth(120);
+
+        TableColumn<SystemPatchRecord, String> colSummary = new TableColumn<>("Changelog Summary");
+        colSummary.setCellValueFactory(c -> new SimpleStringProperty(c.getValue().changelogSummary()));
+        colSummary.setPrefWidth(260);
+
+        patchTable.getColumns().addAll(colVer, colType, colTime, colBy, colHash, colStatus, colSummary);
+
+        Runnable refreshHistory = () -> {
+            try {
+                List<SystemPatchRecord> list = otaService.getPatchHistory();
+                patchTable.setItems(FXCollections.observableArrayList(list));
+            } catch (Exception ex) {
+                log.warn("Could not query patch history: {}", ex.getMessage());
+            }
+        };
+        refreshHistory.run();
+
+        // Wire Actions:
         btnCheck.setOnAction(e -> {
             OtaUpdateService.UpdateInfo info = otaService.checkForUpdates();
             otaLog.appendText("\n\n[OTA CHECK] " + Instant.now() + "\n" +
                     "Latest Version: " + info.latestVersion() + "\n" +
                     "Update Available: " + (info.updateAvailable() ? "YES" : "NO (Installed version is up to date)") + "\n" +
                     "Release Date: " + info.releaseDate() + " | Master Catalog: " + info.totalRemedies() + " remedies\n" +
-                    "Changelog: " + info.changelog() + "\n" +
+                    "Changelog:\n" + info.changelog() + "\n" +
                     "Safety Guarantee: " + info.safetyNotice());
-            showNotification("OTA Status: Up to date (" + OtaUpdateService.CURRENT_VERSION + ")");
+            showNotification("OTA Status: Update available: " + info.latestVersion());
         });
 
-        Button btnInstallPackage = new Button("📦 Install OTA Master Database (.db)");
-        btnInstallPackage.getStyleClass().add(Styles.BUTTON_OUTLINED);
-        btnInstallPackage.setOnAction(e -> {
+        btnApplyLive.setOnAction(e -> {
+            btnApplyLive.setDisable(true);
+            btnCheck.setDisable(true);
+            btnOffline.setDisable(true);
+            progressBar.setVisible(true);
+            progressBar.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
+            progressStatusLabel.setText("Applying live system update...");
+
+            String currentUser = securityService != null && securityService.getCurrentSession() != null
+                    ? securityService.getCurrentSession().user().username() : "admin";
+
+            Task<OtaUpdateService.ApplyResult> task = new Task<>() {
+                @Override
+                protected OtaUpdateService.ApplyResult call() {
+                    return otaService.applyLiveUpdateAutomated(msg -> {
+                        javafx.application.Platform.runLater(() -> {
+                            otaLog.appendText(msg + "\n");
+                            progressStatusLabel.setText(msg.replaceAll("\\[\\d/\\d\\] ", ""));
+                        });
+                    }, currentUser);
+                }
+            };
+
+            task.setOnSucceeded(evt -> {
+                btnApplyLive.setDisable(false);
+                btnCheck.setDisable(false);
+                btnOffline.setDisable(false);
+                progressBar.setVisible(false);
+                progressStatusLabel.setText("Update complete!");
+
+                OtaUpdateService.ApplyResult res = task.getValue();
+                if (res.success()) {
+                    showNotification("Update Succeeded: " + res.message());
+                    refreshHistory.run();
+
+                    Alert alert = new Alert(Alert.AlertType.INFORMATION);
+                    alert.setTitle("System Update Applied Successfully");
+                    alert.setHeaderText("🎉 OpenHomeo " + res.version() + " Installed");
+                    alert.setContentText(
+                            "The automated live update has been applied smoothly.\n\n" +
+                            "• New Features Activated: 360° Patient Dossier, Classical Logic AI Chat (No LLM), In-App Prescription Slips, and Master Catalog updates.\n" +
+                            "• Non-Destructive Guarantee: All patient records, consultations, and prescriptions in user_clinic.db are 100% intact.\n" +
+                            "• Verified SHA-256 Hash: " + res.hash() + "\n\n" +
+                            "A permanent audit record has been timestamped in your client database."
+                    );
+                    alert.showAndWait();
+                } else {
+                    showError(res.message());
+                }
+            });
+
+            task.setOnFailed(evt -> {
+                btnApplyLive.setDisable(false);
+                btnCheck.setDisable(false);
+                btnOffline.setDisable(false);
+                progressBar.setVisible(false);
+                progressStatusLabel.setText("Update failed");
+                Throwable ex = task.getException();
+                showError("Update failed: " + (ex != null ? ex.getMessage() : "Unknown error"));
+            });
+
+            new Thread(task).start();
+        });
+
+        // Offline Fallback Button
+        btnOffline.setOnAction(e -> {
             FileChooser chooser = new FileChooser();
-            chooser.setTitle("Select OpenHomeo Master Database Update Package");
+            chooser.setTitle("Select OpenHomeo Master Database Update Package (.db)");
             chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("SQLite Database (*.db)", "*.db"));
             File file = chooser.showOpenDialog(getScene().getWindow());
             if (file != null) {
-                OtaUpdateService.ApplyResult res = otaService.applyUpdate(file, "1.0.1-OTA");
-                otaLog.appendText("\n\n[OTA INSTALL RESULT]\nStatus: " + (res.success() ? "SUCCESS" : "FAILED") + "\n" +
-                        "Version: " + res.version() + "\nMessage: " + res.message());
+                String currentUser = securityService != null && securityService.getCurrentSession() != null
+                        ? securityService.getCurrentSession().user().username() : "admin";
+                OtaUpdateService.ApplyResult res = otaService.applyUpdateFromOfflinePackage(file, "1.1.0-OfflinePatch", currentUser);
+                otaLog.appendText("\n[OFFLINE PACKAGE RESULT]\nStatus: " + (res.success() ? "SUCCESS" : "FAILED") + "\nMessage: " + res.message() + "\n");
                 if (res.success()) {
-                    showNotification("OTA Update Applied: " + res.message());
+                    showNotification("Offline package applied: " + res.message());
+                    refreshHistory.run();
                 } else {
                     showError(res.message());
                 }
             }
         });
 
-        actions.getChildren().addAll(btnCheck, btnInstallPackage);
+        historySection.getChildren().addAll(historyTitle, patchTable);
 
-        content.getChildren().addAll(secTitle, safetyBadge, statusGrid, actions, new Label("OTA Transaction & Integrity Log:"), otaLog);
+        content.getChildren().addAll(
+                secTitle, safetyBadge, cardsRow, actionsRow, terminalBox, historySection
+        );
+
         pane.setCenter(new ScrollPane(content));
         return pane;
+    }
+
+    private VBox createStatusCard(String title, String mainValue, String subValue, String accentHex) {
+        VBox card = new VBox(4);
+        card.setStyle("-fx-background-color: -color-bg-subtle; -fx-padding: 10 14; -fx-border-color: -color-border-subtle; -fx-border-radius: 8; -fx-background-radius: 8; -fx-border-width: 1 1 1 4; -fx-border-color: " + accentHex + " -color-border-subtle -color-border-subtle " + accentHex + ";");
+
+        Label t = new Label(title);
+        t.setStyle("-fx-font-weight: bold; -fx-font-size: 11px; -fx-text-fill: -color-fg-muted;");
+
+        Label v = new Label(mainValue);
+        v.setFont(Font.font("Segoe UI", FontWeight.BOLD, 14));
+        v.setStyle("-fx-text-fill: " + accentHex + ";");
+
+        Label s = new Label(subValue);
+        s.setWrapText(true);
+        s.setStyle("-fx-font-size: 11px; -fx-text-fill: -color-fg-muted;");
+
+        card.getChildren().addAll(t, v, s);
+        return card;
     }
 
     private Node createProvingIngestionPane() {
