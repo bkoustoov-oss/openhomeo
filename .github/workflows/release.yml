@@ -1,0 +1,66 @@
+name: OpenHomeo Workstation Automated Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Publish Release Bundles
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21 LTS
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Set up Rust & Cargo
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Native Rust Core
+        run: |
+          cd native-core
+          cargo build --release
+
+      - name: Build OpenHomeo Workstation (Java 21 LTS Release)
+        run: mvn clean package -DskipTests
+
+      - name: Package Standalone Universal Release Bundles
+        shell: pwsh
+        run: ./package-release.ps1
+
+      - name: Create GitHub Release and Upload Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "OpenHomeo Workstation ${{ github.ref_name }} (Diamond Edition)"
+          body: |
+            ## OpenHomeo Workstation ${{ github.ref_name }} - Diamond Edition 💎
+            Classical Homeopathy Clinical, Repertorization & Dispensary Workstation (100% Free Open-Source Software)
+
+            ### 🏛️ What's New in Version 1.2.0:
+            - **OpenSynthesis Repertory Scale**: Architecture with millions of additions, degrees (1-4), classical author citation codes (`k1`, `b1`, `bog1`, `a1`, `c1`, `boer1`, `h1`, `her1`, `ccrh24`), and cross-reference synonym network.
+            - **1,500-Book Materia Medica Digital Library**: Searchable with SQLite FTS5 + BM25 ranking across foundational treatises (Hahnemann, Kent, Boericke, Clarke, Nash, Hering, Boger, Allen, CCRH). Accessible to both Doctors and Admins for ready references and consultation with AI.
+            - **Families Tool & Taxonomy Classifier**: Taxonomy classification across Kingdoms (Plant via APG IV, Mineral Periodic Table Series 1-7 and Stages 1-18 via Jan Scholten, Animal phyla/classes, Nosodes, Sarcodes) and Classical Miasms, with matrix filtering and distribution charts.
+            - **WinChip-Alike Patient Management Module**: Longitudinal consultation follow-up comparison (side-by-side Visit N vs Visit N-1), automated Kent's 12 Observations evaluator, and Hering's Law directional cure tracker.
+            - **Upgraded Socratic Clinical Logic AI (Strictly Deterministic, NO LLM)**: Deep classical homeopathic intelligence that actively questions the doctor on proceedings (thermal contradiction challenges, posology repetition hazards, follow-up interventions) and features a **Doctor Supersede & Clinical Experience Capture** mechanism to preserve experiential clinical wisdom into a permanent Experience Vault.
+            - **100% Non-Destructive Update Guarantee**: All patient clinical records (`user_clinic.db`) remain strictly isolated, untouched, and safe.
+
+            ### 📦 Download Links:
+            - **Windows 10 / 11 Portable**: `OpenHomeo-${{ github.ref_name }}-Windows.zip`
+            - **macOS (Apple Silicon & Intel)**: `OpenHomeo-${{ github.ref_name }}-macOS.tar.gz` and `OpenHomeo-${{ github.ref_name }}-macOS.zip`
+          files: |
+            dist/OpenHomeo-*.zip
+            dist/OpenHomeo-*.tar.gz
+            ota_manifest.json
+          draft: false
+          prerelease: false
