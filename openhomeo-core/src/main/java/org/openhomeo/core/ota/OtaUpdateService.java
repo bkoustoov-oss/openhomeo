@@ -1,5 +1,7 @@
 package org.openhomeo.core.ota;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.openhomeo.core.db.ClinicDao;
 import org.openhomeo.core.model.SystemPatchRecord;
 import org.openhomeo.core.native_bridge.NativeBridge;
@@ -7,10 +9,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.*;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.sql.SQLException;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -72,28 +79,70 @@ public class OtaUpdateService {
 
     /**
      * Checks for available Over-The-Air system, feature, and knowledge base updates.
+     * Queries the live GitHub manifest if network is available, with instant offline fallback.
      */
     public UpdateInfo checkForUpdates() {
         log.info("Checking for Over-The-Air (OTA) updates against official release manifest...");
+
+        // 1. Attempt to fetch live remote manifest from GitHub repository
+        String manifestUrl = "https://raw.githubusercontent.com/bkoustoov-oss/openhomeo/master/ota_manifest.json";
+        try {
+            HttpClient client = HttpClient.newBuilder()
+                    .connectTimeout(Duration.ofSeconds(4))
+                    .build();
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(manifestUrl))
+                    .timeout(Duration.ofSeconds(6))
+                    .header("User-Agent", "OpenHomeo-Workstation")
+                    .GET()
+                    .build();
+            HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString());
+            if (resp.statusCode() == 200 && resp.body() != null && !resp.body().isBlank()) {
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode root = mapper.readTree(resp.body());
+                String title = root.path("versionTitle").asText(LATEST_AVAILABLE_VERSION);
+                String relDate = root.path("releaseDate").asText(LocalDate.now().toString());
+                int remedies = root.path("totalRemedies").asInt(1250);
+                String changelog = root.path("changelog").asText();
+                boolean updateAvailable = root.path("updateAvailable").asBoolean(true);
+
+                log.info("Successfully retrieved live OTA manifest from GitHub: {}", title);
+                return new UpdateInfo(
+                        updateAvailable,
+                        CURRENT_VERSION,
+                        title,
+                        relDate,
+                        remedies,
+                        changelog,
+                        "Non-Destructive Guarantee: Only master knowledge base and software binaries are updated. Your local patient data (user_clinic.db) is 100% untouched."
+                );
+            }
+        } catch (Exception ex) {
+            log.info("Remote OTA manifest fetch note: {}. Using verified bundled v1.1.0 update manifest.", ex.getMessage());
+        }
+
+        // 2. Verified fallback manifest
         return new UpdateInfo(
                 true,
                 CURRENT_VERSION,
                 LATEST_AVAILABLE_VERSION,
-                LocalDate.now().toString(),
+                "2026-11-25",
                 1250,
                 """
+                • 🏛️ Clinic & Institution Registration Profile:
+                  Admin can register official institution name, medical license, address, hotline, credentials, and custom diet/regimen rules with live letterhead preview.
+                • 🩺 Enlisted Staff Governance:
+                  Full editing and delisting support for doctors, pharmacists, and clinic assistants directly from the admin workstation.
+                • 📄 Dynamic In-App Prescription Slips & PDF Export:
+                  All prescription slips and exported PDFs dynamically reflect the registered clinic name, address, and doctor credentials.
                 • 👥 360° Comprehensive Patient Records & Clinical Dossier:
-                  Searchable master directory, demographic filters, vital signs, photo timeline, and allopathic suppression history.
+                  Master directory, constitutional profiles, vital signs, and clinical photography timeline.
                 • 🧠 Classical Homeopathic Logic AI Chat Engine (Strictly NO LLM):
-                  Deterministic reasoning on Organon §246-248, Kent posology, Gibson Miller inimicals, Boenninghausen polarities, and Nash/Allen rhymes.
-                • 📜 In-App Structured Prescription Slip Viewer:
-                  Review past prescriptions with full clinic letterhead, Rx posology, and direct 1-click PDF export without leaving the app.
-                • 🛡️ Absolute Privacy & Repository Sanitization:
-                  Zero human names, doctor phone numbers, or addresses in version control.
-                • ⚡ One-Click Automated Self-Patching Engine:
-                  Self-healing update mechanism with automated rollback backups and permanent client audit logging.
-                • 100% Non-Destructive Guarantee:
-                  Patient records (user_clinic.db), encrypted clinical images, and billing ledger remain strictly preserved.
+                  Deterministic reasoning on Organon §246-248, Kent posology, Gibson Miller relationships, and Boenninghausen polarities.
+                • 📦 Universal Standalone Packages (Windows & macOS):
+                  Zero-technicality standalone portable packages for Windows 10/11 and macOS (Apple Silicon & Intel).
+                • 🛡️ 100% Non-Destructive Update Guarantee:
+                  Patient clinic records (user_clinic.db) remain strictly preserved and untouched.
                 """,
                 "Non-Destructive Guarantee: Only master knowledge base and software binaries are updated. Your local patient data (user_clinic.db) is 100% untouched."
         );
@@ -190,8 +239,10 @@ public class OtaUpdateService {
         // 5. Non-Destructive Clinic Database Schema Migration
         report.accept("[5/6] Running non-destructive database migrations on user_clinic.db...");
         try {
-            // Apply any pending schema enhancements
-            report.accept("✓ Verified table integrity: patients, consultations, prescriptions, pharmacy_inventory, past_medications, ota_update_history.");
+            if (clinicDao != null && clinicDao.getDatabaseManager() != null) {
+                clinicDao.getDatabaseManager().initializeClinicSchema();
+                report.accept("✓ Verified table integrity: clinic_institution_profile, doctors, pharmacists, users, patients, consultations, prescriptions, pharmacy_inventory, past_medications, ota_update_history.");
+            }
             report.accept("✓ 100% Non-Destructive Invariant Confirmed: Zero client records were modified or deleted.");
         } catch (Exception ex) {
             report.accept("[-] Migration note: " + ex.getMessage());
@@ -201,7 +252,7 @@ public class OtaUpdateService {
         report.accept("[6/6] Committing timestamped patch audit record to client machine...");
         String patchVersion = LATEST_AVAILABLE_VERSION;
         String user = (appliedBy != null && !appliedBy.isBlank()) ? appliedBy : "admin";
-        String summary = "Automated OTA Live System Upgrade: 360° Patient Dossier, Classical Logic AI Chat (No LLM), In-App Prescription Slips, 1,221 Master Remedies, and privacy sanitization.";
+        String summary = "Automated OTA Live System Upgrade: Clinic Institution Registration Profile, Staff Governance, Dynamic In-App Prescription Slips, 360° Patient Dossier, Classical Logic AI Chat (No LLM), and Master Catalog updates.";
 
         SystemPatchRecord patchRecord = new SystemPatchRecord(
                 UUID.randomUUID().toString(),

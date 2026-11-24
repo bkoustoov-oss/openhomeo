@@ -1601,14 +1601,41 @@ public class AdminManagementView extends BorderPane {
 
         // Wire Actions:
         btnCheck.setOnAction(e -> {
-            OtaUpdateService.UpdateInfo info = otaService.checkForUpdates();
-            otaLog.appendText("\n\n[OTA CHECK] " + Instant.now() + "\n" +
-                    "Latest Version: " + info.latestVersion() + "\n" +
-                    "Update Available: " + (info.updateAvailable() ? "YES" : "NO (Installed version is up to date)") + "\n" +
-                    "Release Date: " + info.releaseDate() + " | Master Catalog: " + info.totalRemedies() + " remedies\n" +
-                    "Changelog:\n" + info.changelog() + "\n" +
-                    "Safety Guarantee: " + info.safetyNotice());
-            showNotification("OTA Status: Update available: " + info.latestVersion());
+            btnCheck.setDisable(true);
+            progressBar.setVisible(true);
+            progressBar.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
+            progressStatusLabel.setText("Checking for live updates online...");
+
+            Task<OtaUpdateService.UpdateInfo> checkTask = new Task<>() {
+                @Override
+                protected OtaUpdateService.UpdateInfo call() {
+                    return otaService.checkForUpdates();
+                }
+            };
+
+            checkTask.setOnSucceeded(evt -> {
+                btnCheck.setDisable(false);
+                progressBar.setVisible(false);
+                progressStatusLabel.setText("Check complete");
+
+                OtaUpdateService.UpdateInfo info = checkTask.getValue();
+                otaLog.appendText("\n\n[OTA CHECK] " + Instant.now() + "\n" +
+                        "Latest Version: " + info.latestVersion() + "\n" +
+                        "Update Available: " + (info.updateAvailable() ? "YES (Ready to Download & Apply)" : "NO (Installed version is up to date)") + "\n" +
+                        "Release Date: " + info.releaseDate() + " | Master Catalog: " + info.totalRemedies() + " verified remedies\n" +
+                        "Changelog:\n" + info.changelog() + "\n" +
+                        "Safety Guarantee: " + info.safetyNotice() + "\n");
+                showNotification("OTA Status: Live Update Available: " + info.latestVersion());
+            });
+
+            checkTask.setOnFailed(evt -> {
+                btnCheck.setDisable(false);
+                progressBar.setVisible(false);
+                progressStatusLabel.setText("Check failed");
+                showError("Failed to check for updates: " + checkTask.getException().getMessage());
+            });
+
+            new Thread(checkTask, "openhomeo-ota-check").start();
         });
 
         btnApplyLive.setOnAction(e -> {
@@ -1645,13 +1672,15 @@ public class AdminManagementView extends BorderPane {
                 if (res.success()) {
                     showNotification("Update Succeeded: " + res.message());
                     refreshHistory.run();
+                    refreshInstitutionProfile();
+                    refreshAllData();
 
                     Alert alert = new Alert(Alert.AlertType.INFORMATION);
                     alert.setTitle("System Update Applied Successfully");
                     alert.setHeaderText("🎉 OpenHomeo " + res.version() + " Installed");
                     alert.setContentText(
                             "The automated live update has been applied smoothly.\n\n" +
-                            "• New Features Activated: 360° Patient Dossier, Classical Logic AI Chat (No LLM), In-App Prescription Slips, and Master Catalog updates.\n" +
+                            "• New Features Activated: Clinic & Institution Registration Profile, Enlisted Staff Governance (Edit/Delist Doctors, Pharmacists & Assistants), Dynamic In-App Prescription Slips, 360° Patient Dossier, Classical Logic AI Chat (No LLM), and Master Catalog updates.\n" +
                             "• Non-Destructive Guarantee: All patient records, consultations, and prescriptions in user_clinic.db are 100% intact.\n" +
                             "• Verified SHA-256 Hash: " + res.hash() + "\n\n" +
                             "A permanent audit record has been timestamped in your client database."
