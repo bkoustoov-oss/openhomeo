@@ -15,6 +15,15 @@
     "macOSPkg": "https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.3.0/OpenHomeo-v1.3.0-macOS-arm64.pkg",
     "linuxTarGz": "https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.3.0/OpenHomeo-v1.3.0-Linux-x86_64.tar.gz"
   },
+  "sha256": {
+    "windows": "6801261f23e78801c7e8c0a2ac9471052902401c3d2c554b684348c18ea24f53",
+    "windowsMsi": "50aa9e3e9de3b4c6fd8c9b6cbf215d1dee0974a3b57946790d6d4952c1a9b61f",
+    "macOS": "b67e0438c6e57ab46386ee7784fe8451ad72c49d8f9c05578e8b4d2c938752ef",
+    "macOSZip": "b67e0438c6e57ab46386ee7784fe8451ad72c49d8f9c05578e8b4d2c938752ef",
+    "macOSDmg": "9846337ebd8edfa9e2b778adab369c89d7ba6ca4c7f8c10369fd0d923a746288",
+    "macOSPkg": "d0dac01aebdcc8fdbfb3cc5f5270979bfac9c912c704d18923908c75265194ba",
+    "linuxTarGz": "0dec61e17b1cfa3e5802217df5caa59f006db0cd52b62e20c725fa194348c0c6"
+  },
   "repositoryUrl": "https://github.com/bkoustoov-oss/openhomeo",
   "releasesUrl": "https://github.com/bkoustoov-oss/openhomeo/releases/tag/v1.3.0"
 }

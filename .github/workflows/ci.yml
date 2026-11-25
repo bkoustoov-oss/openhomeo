@@ -35,4 +35,10 @@ jobs:
           cargo build --release
 
       - name: Build and Test OpenHomeo Workstation
-        run: mvn clean test
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            xvfb-run -a mvn clean test
+          else
+            mvn clean test
+          fi
