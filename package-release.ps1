@@ -17,10 +17,10 @@ $distDir = Join-Path $rootDir "dist"
 
 Write-Host "[*] Packaging OpenHomeo Workstation v$Version..." -ForegroundColor Cyan
 if (-not $SkipMavenBuild) {
-    Write-Host "[*] Compiling & packaging JARs (mvn package -DskipTests)..." -ForegroundColor Cyan
-    mvn package -DskipTests
-    if ($LASTEXITCODE -ne 0) { throw "Maven package failed." }
-    mvn dependency:copy-dependencies -pl openhomeo-gui -DincludeScope=runtime
+    Write-Host "[*] Compiling, installing core modules & packaging JARs..." -ForegroundColor Cyan
+    mvn -B install -DskipTests
+    if ($LASTEXITCODE -ne 0) { throw "Maven install/package failed." }
+    mvn -B dependency:copy-dependencies -pl openhomeo-gui -DincludeScope=runtime
     if ($LASTEXITCODE -ne 0) { throw "Maven copy-dependencies failed." }
 }
 

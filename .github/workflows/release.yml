@@ -114,7 +114,7 @@ jobs:
         run: |
           VER="${{ steps.ver.outputs.semver }}"
           ARCH="${{ steps.ver.outputs.arch }}"
-          mvn -B package -DskipTests
+          mvn -B install -DskipTests
           mvn -B dependency:copy-dependencies -pl openhomeo-gui -DincludeScope=runtime
 
           STAGE="dist/_mac_input"
@@ -206,7 +206,7 @@ jobs:
       - name: Build Generic Linux Distro-Independent Tarball
         run: |
           VER="${{ steps.ver.outputs.semver }}"
-          mvn -B package -DskipTests
+          mvn -B install -DskipTests
           mvn -B dependency:copy-dependencies -pl openhomeo-gui -DincludeScope=runtime
 
           STAGE="dist/_linux_input"
