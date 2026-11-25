@@ -272,5 +272,7 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          name: "OpenHomeo ${{ github.ref_name }}"
+          generate_release_notes: false
+          body: "Automated multi-platform OpenHomeo native release (${{ github.ref_name }}) with Windows MSI/ZIP, macOS DMG/PKG/tar.gz, Linux distro-independent tar.gz, and SHA256SUMS.txt."
           files: release-assets/*

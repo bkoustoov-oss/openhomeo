@@ -1,29 +1,29 @@
 {
-  "version": "1.3.0",
-  "semver": "1.3.0",
-  "versionTitle": "1.3.0-Diamond+ (1,500-Book Digital Library, Client-Server DB, Silent Launchers & Native MSI/DMG/PKG)",
+  "version": "1.3.1",
+  "semver": "1.3.1",
+  "versionTitle": "1.3.1-Diamond+ (Doctor Case-Taking AI Scribe Chat, Hardened OTA Swapper & Silent Native Packages)",
   "releaseDate": "2026-11-25",
   "totalRemedies": 1350,
   "updateAvailable": true,
-  "changelog": "• 📚 Complete 1,500-Book Digital Materia Medica Library: All 1,500 classical, pharmacopoeial, and indigenous CCRH volumes populated with browsable left-pane bookshelf, instant click-to-read sections, and SQLite FTS5 BM25 search.\n• 🌐 True Client-Server Workstation Separation: Dedicated Server Host (authenticated HTTP/JSON SQLite WAL RPC + Image Vault on port 45825 + LAN UDP Beacon on 45824) and true Client Terminal mode without creating isolated local user_clinic.db files.\n• 🔇 Zero-Terminal Desktop Launch: Native self-contained GUI launchers (Windows OpenHomeo.exe / hidden VBS javaw.exe, macOS OpenHomeo.app, Linux Desktop entry Terminal=false) with zero console windows opening on startup.\n• 🔧 Hardened Windows & Unix Installers + Uninstaller: Fixed PowerShell Java 21 LTS detection on stderr, added native .msi / .dmg / .pkg / distro-independent Linux .tar.gz packaging, and bundled clean Uninstallers preserving patient data.\n• 🛡️ Fail-Safe Atomic OTA Engine: SemVer detection from runtime metadata, SHA-256 verification before payload swap, rollback snapshots, and detached PID-waiting updater.",
+  "changelog": "• 🩺 Optional Case-Taking AI Scribe Chat (Doctor & Admin Only): Toggleable side-by-side serial patient statement chat inside Clinical Case-Taking that structures Hahnemannian L-S-M-C, Mind, and Physical Generals, asks clarifying prompts under doctor supervision, auto-fills existing forms, and recommends the entry-point medicine (Strictly Zero External LLM).\n• 🔧 Hardened OTA Swapper & Blank Modal Fix: Packaged JAR/EXE installs never mis-trigger git pull even when legacy .git folders exist, mirror full jpackage binaries cleanly while deleting legacy split jars/clutter, and render completion dialogs cleanly with one-click restart.\n• 📚 1,500-Book Digital Materia Medica Library & Client-Server DB Separation: Full FTS5 library search plus LAN/SSH Clinic Server & Client Terminal modes.",
   "downloadUrls": {
-    "windows": "https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.3.0/OpenHomeo-v1.3.0-Windows.zip",
-    "windowsMsi": "https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.3.0/OpenHomeo-v1.3.0-Windows.msi",
-    "macOS": "https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.3.0/OpenHomeo-v1.3.0-macOS.tar.gz",
-    "macOSZip": "https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.3.0/OpenHomeo-v1.3.0-macOS.tar.gz",
-    "macOSDmg": "https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.3.0/OpenHomeo-v1.3.0-macOS-arm64.dmg",
-    "macOSPkg": "https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.3.0/OpenHomeo-v1.3.0-macOS-arm64.pkg",
-    "linuxTarGz": "https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.3.0/OpenHomeo-v1.3.0-Linux-x86_64.tar.gz"
+    "windows": "https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.3.1/OpenHomeo-v1.3.1-Windows.zip",
+    "windowsMsi": "https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.3.1/OpenHomeo-v1.3.1-Windows.msi",
+    "macOS": "https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.3.1/OpenHomeo-v1.3.1-macOS.tar.gz",
+    "macOSZip": "https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.3.1/OpenHomeo-v1.3.1-macOS.tar.gz",
+    "macOSDmg": "https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.3.1/OpenHomeo-v1.3.1-macOS-arm64.dmg",
+    "macOSPkg": "https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.3.1/OpenHomeo-v1.3.1-macOS-arm64.pkg",
+    "linuxTarGz": "https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.3.1/OpenHomeo-v1.3.1-Linux-x86_64.tar.gz"
   },
   "sha256": {
-    "windows": "6801261f23e78801c7e8c0a2ac9471052902401c3d2c554b684348c18ea24f53",
-    "windowsMsi": "50aa9e3e9de3b4c6fd8c9b6cbf215d1dee0974a3b57946790d6d4952c1a9b61f",
-    "macOS": "b67e0438c6e57ab46386ee7784fe8451ad72c49d8f9c05578e8b4d2c938752ef",
-    "macOSZip": "b67e0438c6e57ab46386ee7784fe8451ad72c49d8f9c05578e8b4d2c938752ef",
-    "macOSDmg": "9846337ebd8edfa9e2b778adab369c89d7ba6ca4c7f8c10369fd0d923a746288",
-    "macOSPkg": "d0dac01aebdcc8fdbfb3cc5f5270979bfac9c912c704d18923908c75265194ba",
-    "linuxTarGz": "0dec61e17b1cfa3e5802217df5caa59f006db0cd52b62e20c725fa194348c0c6"
+    "windows": "77c7b59592b58b61160c02122d1d4a68a7e1c1743283f28c72ba871c3c105161",
+    "windowsMsi": "40fbb8feaec681ac1d4f96108dc987be8ac7975181ec7e60ac4c611eb0c7d879",
+    "macOS": "9be3baf0d62957ccc169d76b4a346a483e2563b304dfc0c428784ae2f1799d5f",
+    "macOSZip": "9be3baf0d62957ccc169d76b4a346a483e2563b304dfc0c428784ae2f1799d5f",
+    "macOSDmg": "5319a83da493e08b7b282263b83f03c0d0c8d0e315330ade926ccb673f5ae587",
+    "macOSPkg": "544676f0a98b438e18116c3446346bc92f689f25c12c142e41072c299ab7c78d",
+    "linuxTarGz": "95d2e402d7fdedec686270f7d5377fe713f8544962154be72597bc956ecce915"
   },
   "repositoryUrl": "https://github.com/bkoustoov-oss/openhomeo",
-  "releasesUrl": "https://github.com/bkoustoov-oss/openhomeo/releases/tag/v1.3.0"
+  "releasesUrl": "https://github.com/bkoustoov-oss/openhomeo/releases/tag/v1.3.1"
 }
