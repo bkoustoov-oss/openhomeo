@@ -58,6 +58,8 @@ public class KnowledgeBaseSeeder {
             log.info("Database commit successful. Creating FTS5 index...");
             buildFtsIndex(conn);
             conn.commit();
+            log.info("Seeding OpenSynthesis additions, Families taxonomy & 1,500-Book Digital Library...");
+            org.openhomeo.core.db.SynthesisAndLibrarySeeder.initializeAndSeedMaster(conn);
             verifyKnowledgeBase(conn);
             log.info("OpenHomeo Master Repertory Database compiled successfully to: {}", outputPath);
         }

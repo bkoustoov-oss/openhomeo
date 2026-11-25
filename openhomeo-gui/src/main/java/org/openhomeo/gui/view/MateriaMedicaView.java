@@ -76,12 +76,17 @@ public class MateriaMedicaView extends BorderPane {
     // Digital Library UI fields
     private VBox libraryBox;
     private TextField librarySearchField;
-    private ComboBox<String> libraryBookFilterCombo;
+    private TextField bookFilterField;
+    private ComboBox<String> libraryCategoryCombo;
+    private ListView<MateriaMedicaBook> libraryBooksList;
+    private final List<MateriaMedicaBook> allLibraryBooks = new ArrayList<>();
+    private Label libraryStatsLabel;
     private ListView<MateriaMedicaSearchResult> libraryResultsList;
     private TextArea libraryReaderArea;
     private Label libraryReaderHeading;
     private Label libraryReaderBookLabel;
     private java.util.function.Consumer<String> onConsultAiRequested;
+    private HBox remedyChooserBar;
 
     public void setOnConsultAiRequested(java.util.function.Consumer<String> callback) {
         this.onConsultAiRequested = callback;
@@ -113,25 +118,60 @@ public class MateriaMedicaView extends BorderPane {
         this.clinicDao = clinicDao;
 
         // =========================================================================
-        // TOP TOOLBAR: AUTOSUGGESTION & INDEPENDENT REMEDY SELECTION
+        // TOP HEADER: MODE SWITCHER BAR (ALWAYS VISIBLE) + REMEDY COMPARISON BAR
         // =========================================================================
-        VBox topContainer = new VBox(4);
-        topContainer.setPadding(new Insets(6, 10, 4, 10));
+        VBox topContainer = new VBox(5);
+        topContainer.setPadding(new Insets(6, 10, 5, 10));
         topContainer.setStyle("-fx-background-color: -color-bg-subtle; -fx-border-color: -color-border-subtle; -fx-border-width: 0 0 1 0;");
 
-        ToolBar toolBar = new ToolBar();
-        toolBar.setStyle("-fx-background-color: transparent; -fx-padding: 0;");
+        // Row 1: Prominent Mode Switcher Bar (Never overflows off 1280px screen)
+        HBox modeBar = new HBox(10);
+        modeBar.setAlignment(Pos.CENTER_LEFT);
+
+        Label modeTitle = new Label("📖 Materia Medica & Digital Library Mode:");
+        modeTitle.setFont(Font.font("Segoe UI", FontWeight.BOLD, 12));
+
+        ToggleGroup viewGroup = new ToggleGroup();
+        btnDualView = new ToggleButton("📖 Dual Monograph");
+        btnDualView.setToggleGroup(viewGroup);
+        btnDualView.setSelected(true);
+        btnDualView.getStyleClass().add(Styles.SMALL);
+
+        btnMatrixView = new ToggleButton("⚖️ Differential Matrix");
+        btnMatrixView.setToggleGroup(viewGroup);
+        btnMatrixView.getStyleClass().add(Styles.SMALL);
+
+        btnLibraryView = new ToggleButton("📚 1,500-Book Digital Library (FTS5)");
+        btnLibraryView.setToggleGroup(viewGroup);
+        btnLibraryView.getStyleClass().add(Styles.SMALL);
+        btnLibraryView.setStyle("-fx-font-weight: bold;");
+
+        viewGroup.selectedToggleProperty().addListener((obs, oldVal, newVal) -> {
+            if (newVal == btnMatrixView) {
+                showDifferentialMatrixView();
+            } else if (newVal == btnLibraryView) {
+                showDigitalLibraryView();
+            } else {
+                showDualMonographView();
+            }
+        });
+
+        modeBar.getChildren().addAll(modeTitle, btnDualView, btnMatrixView, btnLibraryView);
+
+        // Row 2: Remedy Comparison Chooser
+        remedyChooserBar = new HBox(8);
+        remedyChooserBar.setAlignment(Pos.CENTER_LEFT);
 
         // Primary Remedy Chooser
-        Label lblPrim = new Label("Primary Remedy:");
+        Label lblPrim = new Label("Primary:");
         lblPrim.setFont(Font.font("Segoe UI", FontWeight.BOLD, 12));
 
         primaryRemedyCombo = new ComboBox<>();
-        primaryRemedyCombo.setPrefWidth(260);
+        primaryRemedyCombo.setPrefWidth(230);
 
         primarySearchField = new TextField();
-        primarySearchField.setPromptText("🔍 Type to search (e.g. acon, bry, neem)...");
-        primarySearchField.setPrefWidth(210);
+        primarySearchField.setPromptText("🔍 Search remedy (acon, bry, neem)...");
+        primarySearchField.setPrefWidth(190);
         primarySearchField.textProperty().addListener((obs, oldVal, newVal) -> filterPrimaryRemedies(newVal));
         primarySearchField.setOnAction(e -> {
             if (!primaryRemedyCombo.getItems().isEmpty()) {
@@ -153,15 +193,15 @@ public class MateriaMedicaView extends BorderPane {
         btnSwap.setOnAction(e -> swapRemedies());
 
         // Comparative Remedy Chooser
-        Label lblComp = new Label("Comparative Remedy:");
+        Label lblComp = new Label("Compare:");
         lblComp.setFont(Font.font("Segoe UI", FontWeight.BOLD, 12));
 
         compareRemedyCombo = new ComboBox<>();
-        compareRemedyCombo.setPrefWidth(260);
+        compareRemedyCombo.setPrefWidth(230);
 
         compareSearchField = new TextField();
-        compareSearchField.setPromptText("🔍 Type to search (e.g. bell, rhus, jamun)...");
-        compareSearchField.setPrefWidth(210);
+        compareSearchField.setPromptText("🔍 Search remedy (bell, rhus, jamun)...");
+        compareSearchField.setPrefWidth(190);
         compareSearchField.textProperty().addListener((obs, oldVal, newVal) -> filterCompareRemedies(newVal));
         compareSearchField.setOnAction(e -> {
             if (!compareRemedyCombo.getItems().isEmpty()) {
@@ -180,39 +220,10 @@ public class MateriaMedicaView extends BorderPane {
         btnClearComp.setTooltip(new Tooltip("Clear Comparative Remedy for Single-Remedy Full View"));
         btnClearComp.setOnAction(e -> clearComparativeRemedy());
 
-        // View Mode Toggles
-        ToggleGroup viewGroup = new ToggleGroup();
-        btnDualView = new ToggleButton("📖 Dual Monograph");
-        btnDualView.setToggleGroup(viewGroup);
-        btnDualView.setSelected(true);
-        btnDualView.getStyleClass().add(Styles.SMALL);
-
-        btnMatrixView = new ToggleButton("⚖️ Differential Matrix");
-        btnMatrixView.setToggleGroup(viewGroup);
-        btnMatrixView.getStyleClass().add(Styles.SMALL);
-
-        btnLibraryView = new ToggleButton("📚 1,500-Book Digital Library (FTS5)");
-        btnLibraryView.setToggleGroup(viewGroup);
-        btnLibraryView.getStyleClass().add(Styles.SMALL);
-
-        viewGroup.selectedToggleProperty().addListener((obs, oldVal, newVal) -> {
-            if (newVal == btnMatrixView) {
-                showDifferentialMatrixView();
-            } else if (newVal == btnLibraryView) {
-                showDigitalLibraryView();
-            } else {
-                showDualMonographView();
-            }
-        });
-
-        toolBar.getItems().addAll(
+        remedyChooserBar.getChildren().addAll(
                 lblPrim, primarySearchField, primaryRemedyCombo,
-                new Separator(),
                 btnSwap,
-                new Separator(),
-                lblComp, compareSearchField, compareRemedyCombo, btnClearComp,
-                new Separator(),
-                new Label("Mode:"), btnDualView, btnMatrixView, btnLibraryView
+                lblComp, compareSearchField, compareRemedyCombo, btnClearComp
         );
 
         // Sub-Toolbar: Quick-Compare Related Remedies Chips Bar
@@ -225,7 +236,7 @@ public class MateriaMedicaView extends BorderPane {
         relatedBarTitle.getStyleClass().add(Styles.TEXT_MUTED);
         relatedChipsBar.getChildren().add(relatedBarTitle);
 
-        topContainer.getChildren().addAll(toolBar, relatedChipsBar);
+        topContainer.getChildren().addAll(modeBar, remedyChooserBar, relatedChipsBar);
         setTop(topContainer);
 
         // =========================================================================
@@ -334,73 +345,127 @@ public class MateriaMedicaView extends BorderPane {
     }
 
     private void showDualMonographView() {
+        remedyChooserBar.setVisible(true);
+        remedyChooserBar.setManaged(true);
+        relatedChipsBar.setVisible(true);
+        relatedChipsBar.setManaged(true);
         centerContainer.getChildren().setAll(textSplit);
         loadRemedyText();
         loadCompareText();
     }
 
     private void showDifferentialMatrixView() {
+        remedyChooserBar.setVisible(true);
+        remedyChooserBar.setManaged(true);
+        relatedChipsBar.setVisible(true);
+        relatedChipsBar.setManaged(true);
         centerContainer.getChildren().setAll(matrixTable.getParent() instanceof VBox ? matrixTable.getParent() : new VBox(matrixHeaderLabel, matrixTable));
         updateDifferentialMatrix();
     }
 
     private void showDigitalLibraryView() {
+        remedyChooserBar.setVisible(false);
+        remedyChooserBar.setManaged(false);
+        relatedChipsBar.setVisible(false);
+        relatedChipsBar.setManaged(false);
         if (libraryBox == null) {
             libraryBox = createDigitalLibraryBox();
         }
         centerContainer.getChildren().setAll(libraryBox);
-        if (libraryResultsList.getItems().isEmpty()) {
-            executeLibrarySearch();
-        }
+        refreshDigitalLibraryCatalog();
     }
 
     private VBox createDigitalLibraryBox() {
         VBox box = new VBox(8);
         box.setPadding(new Insets(10));
 
-        HBox searchRow = new HBox(10);
+        // Top Search & Category Bar
+        HBox searchRow = new HBox(8);
         searchRow.setAlignment(Pos.CENTER_LEFT);
 
-        Label searchLbl = new Label("📚 FTS5 Search across 1,500 Volumes:");
+        Label searchLbl = new Label("📚 Digital Library:");
         searchLbl.setFont(Font.font("Segoe UI", FontWeight.BOLD, 12));
 
+        bookFilterField = new TextField();
+        bookFilterField.setPromptText("Filter 1,500 Volumes by title / author...");
+        bookFilterField.setPrefWidth(220);
+        bookFilterField.textProperty().addListener((obs, o, n) -> applyBookCatalogFilter());
+
+        libraryCategoryCombo = new ComboBox<>();
+        libraryCategoryCombo.setPrefWidth(190);
+        libraryCategoryCombo.getItems().addAll(
+                "ALL CATEGORIES",
+                "PHILOSOPHY",
+                "CLASSICAL_PROVINGS",
+                "CLINICAL_THERAPEUTICS",
+                "REPERTORY_SYNOPTIC",
+                "REGIONAL_INDIGENOUS",
+                "MATERIA_MEDICA_MONOGRAPHS",
+                "ORGAN_SYSTEM_CLINICAL",
+                "NOSODES_AND_SARCODES"
+        );
+        libraryCategoryCombo.setValue("ALL CATEGORIES");
+        libraryCategoryCombo.setOnAction(e -> applyBookCatalogFilter());
+
         librarySearchField = new TextField();
-        librarySearchField.setPromptText("Enter symptom keywords (e.g. headache sun agg glonoin, organon 248, burning heat amel)...");
-        librarySearchField.setPrefWidth(380);
+        librarySearchField.setPromptText("⚡ FTS5 Global Search across all volumes (e.g. organon 248, arsenicum, neem)...");
+        HBox.setHgrow(librarySearchField, Priority.ALWAYS);
         librarySearchField.setOnAction(e -> executeLibrarySearch());
 
-        libraryBookFilterCombo = new ComboBox<>();
-        libraryBookFilterCombo.setPrefWidth(240);
-        libraryBookFilterCombo.getItems().addAll(
-                "All 1,500 Volumes",
-                "Organon of Medicine (6th Edition)",
-                "Materia Medica Pura (Vols 1-6)",
-                "The Chronic Diseases (Vols 1-5)",
-                "Lectures on Homoeopathic Materia Medica",
-                "Lectures on Homoeopathic Philosophy",
-                "Pocket Manual of Homoeopathic Materia Medica & Repertory",
-                "A Dictionary of Practical Materia Medica (3 Volumes)",
-                "Leaders in Homoeopathic Therapeutics",
-                "The Guiding Symptoms of our Materia Medica (10 Volumes)",
-                "A Synoptic Key of the Materia Medica",
-                "Clinical Verification of Indigenous Indian Drugs"
-        );
-        libraryBookFilterCombo.setValue("All 1,500 Volumes");
-        libraryBookFilterCombo.setOnAction(e -> executeLibrarySearch());
-
-        Button searchBtn = new Button("⚡ Instant FTS5 Search");
+        Button searchBtn = new Button("🔍 FTS5 Search");
         searchBtn.getStyleClass().addAll(Styles.ACCENT, Styles.BUTTON_OUTLINED);
         searchBtn.setOnAction(e -> executeLibrarySearch());
 
-        searchRow.getChildren().addAll(searchLbl, librarySearchField, libraryBookFilterCombo, searchBtn);
+        libraryStatsLabel = new Label("Loading 1,500-Book Catalog...");
+        libraryStatsLabel.setStyle("-fx-background-color: #f0f9ff; -fx-text-fill: #0369a1; -fx-padding: 4 8; -fx-border-color: #bae6fd; -fx-border-radius: 5; -fx-background-radius: 5; -fx-font-size: 11px; -fx-font-weight: bold;");
 
-        // SplitPane: Results List on Left, Monograph Content on Right
+        searchRow.getChildren().addAll(searchLbl, bookFilterField, libraryCategoryCombo, librarySearchField, searchBtn, libraryStatsLabel);
+
+        // 3-Pane Explorer: Volumes Catalog (Left) | Chapters/Matches (Middle) | Full Reader (Right)
         SplitPane libSplit = new SplitPane();
         VBox.setVgrow(libSplit, Priority.ALWAYS);
 
-        VBox resultsBox = new VBox(6);
+        // Left: 1,500-Volume Catalog List
+        VBox catalogBox = new VBox(5);
+        catalogBox.setPadding(new Insets(6));
+        Label catLbl = new Label("📚 Library Volumes (Click any book to open):");
+        catLbl.setFont(Font.font("Segoe UI", FontWeight.BOLD, 11));
+        catLbl.getStyleClass().add(Styles.ACCENT);
+
+        libraryBooksList = new ListView<>();
+        VBox.setVgrow(libraryBooksList, Priority.ALWAYS);
+        libraryBooksList.setCellFactory(lv -> new ListCell<>() {
+            @Override
+            protected void updateItem(MateriaMedicaBook b, boolean empty) {
+                super.updateItem(b, empty);
+                if (empty || b == null) {
+                    setText(null);
+                    setGraphic(null);
+                } else {
+                    VBox card = new VBox(2);
+                    Label title = new Label(b.title());
+                    title.setFont(Font.font("Segoe UI", FontWeight.BOLD, 11.5));
+                    title.setWrapText(true);
+                    title.setMaxWidth(260);
+                    Label meta = new Label(b.author() + " (" + b.era() + ") • " + b.category() + " • " + b.totalSections() + " refs");
+                    meta.setFont(Font.font("Segoe UI", 10));
+                    meta.getStyleClass().add(Styles.TEXT_MUTED);
+                    card.getChildren().addAll(title, meta);
+                    setGraphic(card);
+                }
+            }
+        });
+        libraryBooksList.getSelectionModel().selectedItemProperty().addListener((obs, oldB, newB) -> {
+            if (newB != null) {
+                loadChaptersForBook(newB);
+            }
+        });
+        catalogBox.getChildren().addAll(catLbl, libraryBooksList);
+
+        // Middle: Chapters / Search Matches
+        VBox resultsBox = new VBox(5);
         resultsBox.setPadding(new Insets(6));
-        Label resLbl = new Label("Matching Treatise Chapters & Paragraphs:");
+        Label resLbl = new Label("📖 Chapters, Monographs & Search Hits:");
         resLbl.setFont(Font.font("Segoe UI", FontWeight.BOLD, 11));
         resLbl.getStyleClass().add(Styles.TEXT_MUTED);
 
@@ -416,18 +481,23 @@ public class MateriaMedicaView extends BorderPane {
                 } else {
                     VBox card = new VBox(2);
                     Label title = new Label(item.remedyName() + " — " + item.sectionHeading());
-                    title.setFont(Font.font("Segoe UI", FontWeight.BOLD, 12));
+                    title.setFont(Font.font("Segoe UI", FontWeight.BOLD, 11.5));
                     title.setTextFill(javafx.scene.paint.Color.web("#0369a1"));
+                    title.setWrapText(true);
+                    title.setMaxWidth(250);
 
                     Label meta = new Label("📖 " + item.bookTitle() + " (" + item.author() + ")");
                     meta.setFont(Font.font("Segoe UI", 10));
                     meta.setTextFill(javafx.scene.paint.Color.web("#475569"));
+                    meta.setWrapText(true);
+                    meta.setMaxWidth(250);
 
                     String cleanSnippet = item.snippet() != null ? item.snippet().replaceAll("<[^>]*>", "") : "";
+                    if (cleanSnippet.length() > 140) cleanSnippet = cleanSnippet.substring(0, 140) + "...";
                     Label snip = new Label(cleanSnippet);
-                    snip.setFont(Font.font("Segoe UI", 11));
+                    snip.setFont(Font.font("Segoe UI", 10.5));
                     snip.setWrapText(true);
-                    snip.setMaxWidth(340);
+                    snip.setMaxWidth(250);
 
                     card.getChildren().addAll(title, meta, snip);
                     setGraphic(card);
@@ -443,7 +513,7 @@ public class MateriaMedicaView extends BorderPane {
 
         resultsBox.getChildren().addAll(resLbl, libraryResultsList);
 
-        // Reader Box
+        // Right: Reader Box
         VBox readerBox = new VBox(8);
         readerBox.setPadding(new Insets(8));
 
@@ -451,9 +521,10 @@ public class MateriaMedicaView extends BorderPane {
         readerHeader.setAlignment(Pos.CENTER_LEFT);
 
         VBox titleBox = new VBox(2);
-        libraryReaderHeading = new Label("Select a section from the search results");
+        libraryReaderHeading = new Label("Select any volume or chapter to read");
         libraryReaderHeading.setFont(Font.font("Segoe UI", FontWeight.BOLD, 14));
-        libraryReaderBookLabel = new Label("Materia Medica Digital Library");
+        libraryReaderHeading.setWrapText(true);
+        libraryReaderBookLabel = new Label("1,500-Volume Classical & Clinical Digital Library");
         libraryReaderBookLabel.setFont(Font.font("Segoe UI", 11));
         libraryReaderBookLabel.getStyleClass().add(Styles.TEXT_MUTED);
         titleBox.getChildren().addAll(libraryReaderHeading, libraryReaderBookLabel);
@@ -482,36 +553,91 @@ public class MateriaMedicaView extends BorderPane {
 
         readerBox.getChildren().addAll(readerHeader, libraryReaderArea);
 
-        libSplit.getItems().addAll(resultsBox, readerBox);
-        libSplit.setDividerPositions(0.35);
+        libSplit.getItems().addAll(catalogBox, resultsBox, readerBox);
+        libSplit.setDividerPositions(0.30, 0.58);
 
         box.getChildren().addAll(searchRow, libSplit);
         return box;
+    }
+
+    private void refreshDigitalLibraryCatalog() {
+        if (libraryBooksList == null) return;
+        try {
+            allLibraryBooks.clear();
+            allLibraryBooks.addAll(masterDao.getAllMateriaMedicaBooks());
+            int totalSecs = masterDao.getTotalLibrarySectionsCount();
+            libraryStatsLabel.setText(String.format("📚 %,d Volumes | %,d Indexed Refs", allLibraryBooks.size(), totalSecs));
+            applyBookCatalogFilter();
+            if (!libraryBooksList.getItems().isEmpty() && libraryResultsList.getItems().isEmpty()) {
+                libraryBooksList.getSelectionModel().selectFirst();
+            }
+        } catch (Exception e) {
+            log.error("Failed loading 1,500-volume digital library catalog", e);
+        }
+    }
+
+    private void applyBookCatalogFilter() {
+        if (libraryBooksList == null) return;
+        String textFilter = bookFilterField != null && bookFilterField.getText() != null
+                ? bookFilterField.getText().trim().toLowerCase() : "";
+        String cat = libraryCategoryCombo != null && libraryCategoryCombo.getValue() != null
+                ? libraryCategoryCombo.getValue() : "ALL CATEGORIES";
+
+        List<MateriaMedicaBook> filtered = allLibraryBooks.stream()
+                .filter(b -> "ALL CATEGORIES".equals(cat) || cat.equalsIgnoreCase(b.category()))
+                .filter(b -> textFilter.isEmpty()
+                        || b.title().toLowerCase().contains(textFilter)
+                        || b.author().toLowerCase().contains(textFilter)
+                        || b.description().toLowerCase().contains(textFilter))
+                .toList();
+
+        libraryBooksList.setItems(FXCollections.observableArrayList(filtered));
+    }
+
+    private void loadChaptersForBook(MateriaMedicaBook book) {
+        if (book == null) return;
+        try {
+            List<MateriaMedicaSection> sections = masterDao.getSectionsForBook(book.id());
+            List<MateriaMedicaSearchResult> items = new ArrayList<>();
+            for (MateriaMedicaSection s : sections) {
+                String preview = s.bodyText().length() > 140 ? s.bodyText().substring(0, 140) + "..." : s.bodyText();
+                items.add(new MateriaMedicaSearchResult(
+                        s.bookId(), s.bookTitle(), s.author(), s.remedyName(), s.sectionHeading(), preview, 1.0
+                ));
+            }
+            libraryResultsList.setItems(FXCollections.observableArrayList(items));
+            if (!items.isEmpty()) {
+                libraryResultsList.getSelectionModel().selectFirst();
+            } else {
+                libraryReaderHeading.setText(book.title());
+                libraryReaderBookLabel.setText(book.author() + " (" + book.era() + ")");
+                libraryReaderArea.setText(book.description());
+            }
+        } catch (Exception e) {
+            log.error("Failed loading chapters for book {}", book.id(), e);
+        }
     }
 
     private void executeLibrarySearch() {
         if (librarySearchField == null) return;
         String q = librarySearchField.getText();
         if (q == null || q.isBlank()) {
-            // Default sample query
-            q = "burning heat amel";
+            MateriaMedicaBook selBook = libraryBooksList.getSelectionModel().getSelectedItem();
+            if (selBook != null) {
+                loadChaptersForBook(selBook);
+            }
+            return;
         }
 
         try {
             List<MateriaMedicaSearchResult> results = masterDao.searchMateriaMedicaFts(q);
-            String bookFilter = libraryBookFilterCombo.getValue();
-            if (bookFilter != null && !bookFilter.equals("All 1,500 Volumes")) {
-                results = results.stream()
-                        .filter(r -> r.bookTitle() != null && r.bookTitle().toLowerCase().contains(bookFilter.toLowerCase().substring(0, Math.min(15, bookFilter.length()))))
-                        .toList();
-            }
-
-            libraryResultsList.setItems(javafx.collections.FXCollections.observableArrayList(results));
+            libraryResultsList.setItems(FXCollections.observableArrayList(results));
             if (!results.isEmpty()) {
                 libraryResultsList.getSelectionModel().selectFirst();
             } else {
                 libraryReaderHeading.setText("No matching chapters found for query: " + q);
-                libraryReaderArea.setText("Tip: Try searching for characteristic symptoms like 'burning pain', 'restlessness', 'Organon 248', or remedy names like 'Arsenicum', 'Azadirachta', 'Lycopodium'.");
+                libraryReaderBookLabel.setText("Search across all " + allLibraryBooks.size() + " volumes");
+                libraryReaderArea.setText("Try keywords such as 'organon 248', 'arsenicum', 'neem', 'azadirachta', 'miasm', 'heart', or click any book on the left catalog to browse directly.");
             }
         } catch (Exception e) {
             log.error("Failed to execute library search", e);
@@ -523,6 +649,11 @@ public class MateriaMedicaView extends BorderPane {
         libraryReaderBookLabel.setText("Book: " + res.bookTitle() + " | Author: " + res.author());
 
         try {
+            Optional<MateriaMedicaSection> exact = masterDao.getSectionExact(res.bookId(), res.sectionHeading());
+            if (exact.isPresent()) {
+                libraryReaderArea.setText(exact.get().bodyText() + "\n\n[Citation: " + exact.get().pageOrVolRef() + "]");
+                return;
+            }
             List<MateriaMedicaSection> sections = masterDao.getSectionsForRemedy(res.remedyName());
             Optional<MateriaMedicaSection> match = sections.stream()
                     .filter(s -> s.sectionHeading().equalsIgnoreCase(res.sectionHeading()))

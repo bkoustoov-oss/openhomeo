@@ -15,11 +15,13 @@ import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 import javafx.stage.Stage;
 import org.openhomeo.core.db.ClinicDao;
+import org.openhomeo.core.db.DatabaseManager;
 import org.openhomeo.core.db.MasterKnowledgeDao;
 import org.openhomeo.core.image.ImageVaultService;
 import org.openhomeo.core.model.Rubric;
 import org.openhomeo.core.model.SystemPatchRecord;
 import org.openhomeo.core.model.User;
+import org.openhomeo.core.net.DeploymentProfile;
 import org.openhomeo.core.ota.OtaUpdateService;
 import org.openhomeo.core.repertory.RepertorizationEngine;
 import org.openhomeo.core.repertory.SymptomClipboard;
@@ -251,6 +253,29 @@ public class MainWindow {
             }
         });
 
+        Label networkModePill = new Label();
+        DatabaseManager dm = clinicDao != null ? clinicDao.getDatabaseManager() : null;
+        if (dm != null) {
+            DeploymentProfile prof = dm.getDeploymentProfile();
+            if (prof.mode() == DeploymentProfile.DeploymentMode.SERVER) {
+                String lanIp = MobileCompanionServer.getLocalLanIp();
+                networkModePill.setText("🟢 Clinic Server " + lanIp + ":" + prof.serverPort());
+                networkModePill.setStyle("-fx-background-color: #f0fdf4; -fx-text-fill: #166534; -fx-border-color: #86efac; -fx-border-radius: 6; -fx-background-radius: 6; -fx-padding: 4 8; -fx-font-weight: bold; -fx-font-size: 11px;");
+                networkModePill.setTooltip(new Tooltip("Clinic Database Server Host ACTIVE\nLAN Address: " + lanIp + ":" + prof.serverPort() + "\nPairing Key: " + prof.pairingKey()));
+            } else if (prof.mode() == DeploymentProfile.DeploymentMode.CLIENT) {
+                networkModePill.setText("🌐 Client → " + prof.serverHost() + ":" + prof.serverPort());
+                networkModePill.setStyle("-fx-background-color: #eff6ff; -fx-text-fill: #1d4ed8; -fx-border-color: #93c5fd; -fx-border-radius: 6; -fx-background-radius: 6; -fx-padding: 4 8; -fx-font-weight: bold; -fx-font-size: 11px;");
+                networkModePill.setTooltip(new Tooltip("Client Terminal connected directly to Shared Clinic Server DB at " + prof.getBaseUrl()));
+            } else {
+                networkModePill.setText("🖥️ Standalone");
+                networkModePill.setStyle("-fx-background-color: #f8fafc; -fx-text-fill: #475569; -fx-border-color: #cbd5e1; -fx-border-radius: 6; -fx-background-radius: 6; -fx-padding: 4 8; -fx-font-size: 11px;");
+                networkModePill.setTooltip(new Tooltip("Single-PC Local Clinic Database"));
+            }
+        } else {
+            networkModePill.setVisible(false);
+            networkModePill.setManaged(false);
+        }
+
         String userDisplay = securityService.getCurrentSession() != null
                 ? "[" + securityService.getCurrentSession().user().role().name() + "] " + securityService.getCurrentSession().user().fullName()
                 : "Practitioner";
@@ -301,16 +326,24 @@ public class MainWindow {
         otaNotificationBtn.setVisible(false);
         otaNotificationBtn.setManaged(false);
 
-        header.getChildren().addAll(brand, new Separator(), searchField, searchBtn, new Separator(), clipboardBadgeBox, spacer, otaNotificationBtn, navDossierBtn, navAiBtn, companionBtn, feedbackBtn, userLabel, themeToggle, lockBtn);
+        header.getChildren().addAll(brand, new Separator(), searchField, searchBtn, new Separator(), clipboardBadgeBox, spacer, otaNotificationBtn, navDossierBtn, navAiBtn, companionBtn, feedbackBtn, networkModePill, userLabel, themeToggle, lockBtn);
         return header;
+    }
+
+    private OtaUpdateService createOtaService() {
+        DatabaseManager dm = clinicDao != null ? clinicDao.getDatabaseManager() : null;
+        if (dm != null) {
+            return new OtaUpdateService(dm.getMasterDbPath(), dm.getClinicDbPath(), clinicDao);
+        }
+        String base = System.getProperty("user.home") + java.io.File.separator + ".openhomeo";
+        return new OtaUpdateService(base + java.io.File.separator + "master_repertory.db", base + java.io.File.separator + "user_clinic.db", clinicDao);
     }
 
     public void checkOtaUpdatesAsync() {
         Task<OtaUpdateService.UpdateInfo> task = new Task<>() {
             @Override
             protected OtaUpdateService.UpdateInfo call() {
-                OtaUpdateService ota = new OtaUpdateService("master_repertory.db", "user_clinic.db", clinicDao);
-                return ota.checkForUpdates();
+                return createOtaService().checkForUpdates();
             }
         };
 
@@ -331,7 +364,7 @@ public class MainWindow {
     private void renderOtaNotificationBadge(OtaUpdateService.UpdateInfo info) {
         if (otaNotificationBtn == null || info == null) return;
 
-        OtaUpdateService ota = new OtaUpdateService("master_repertory.db", "user_clinic.db", clinicDao);
+        OtaUpdateService ota = createOtaService();
         Optional<SystemPatchRecord> latestPatch = ota.getLatestAppliedPatch();
         boolean isApplied = latestPatch.isPresent() && latestPatch.get().version().trim().equalsIgnoreCase(info.latestVersion().trim());
 
@@ -425,7 +458,7 @@ public class MainWindow {
                 pStatus.setText("Applying live update...");
 
                 String currentUser = securityService.getCurrentSession().user().username();
-                OtaUpdateService ota = new OtaUpdateService("master_repertory.db", "user_clinic.db", clinicDao);
+                OtaUpdateService ota = createOtaService();
 
                 Task<OtaUpdateService.ApplyResult> applyTask = new Task<>() {
                     @Override
@@ -448,21 +481,29 @@ public class MainWindow {
 
                         String appliedLocalTime = OtaUpdateService.formatLocalTimestamp(Instant.now());
                         successAlert.setContentText(
-                                "The automated live update has been applied smoothly to your workstation.\n\n" +
+                                "The automated live update has been staged & verified cleanly.\n\n" +
                                 "• Patch Release / Originated Date: " + info.releaseDate() + "\n" +
                                 "• Applied Date & Local Timestamp: " + appliedLocalTime + "\n\n" +
-                                "• Activated Changes & Commented Enhancements:\n" +
-                                "  1. 🏛️ Clinic & Institution Registration Profile (letterhead branding & regimen)\n" +
-                                "  2. 🩺 Enlisted Staff Governance (edit & delist Doctors, Pharmacists, Assistants)\n" +
-                                "  3. 📄 Dynamic In-App Prescription Slips & Letterhead PDF Export\n" +
-                                "  4. 👥 360° Comprehensive Patient Records & Clinical Dossier\n" +
-                                "  5. 🧠 Classical Homeopathic Logic AI Chat Engine (Strictly NO LLM)\n" +
-                                "  6. 📦 Universal Standalone Packages (Windows 10/11 & macOS)\n\n" +
+                                "• Activated Changes & Commented Enhancements:\n" + info.changelog() + "\n\n" +
                                 "• 🛡️ Non-Destructive Invariant Confirmed: All patient cases and prescriptions in user_clinic.db are 100% safe and intact.\n" +
                                 "• Verified SHA-256 Checksum: " + res.hash() + "\n\n" +
-                                "A permanent client audit entry with your local workstation timestamp (" + appliedLocalTime + ") has been recorded."
+                                (res.restartRequired()
+                                        ? "Click OK to automatically swap the updated application binaries cleanly and relaunch OpenHomeo."
+                                        : "A permanent client audit entry with your local workstation timestamp (" + appliedLocalTime + ") has been recorded.")
                         );
-                        successAlert.showAndWait();
+                        if (res.restartRequired() && res.updaterScriptPath() != null) {
+                            ButtonType btnRestartNow = new ButtonType("🔄 Restart & Complete Upgrade", ButtonBar.ButtonData.OK_DONE);
+                            ButtonType btnLater = new ButtonType("Later", ButtonBar.ButtonData.CANCEL_CLOSE);
+                            successAlert.getButtonTypes().setAll(btnRestartNow, btnLater);
+                            successAlert.showAndWait().ifPresent(bt -> {
+                                if (bt == btnRestartNow && OtaUpdateService.launchStagedUpdater(res.updaterScriptPath())) {
+                                    Platform.exit();
+                                    System.exit(0);
+                                }
+                            });
+                        } else {
+                            successAlert.showAndWait();
+                        }
                     } else {
                         btnApply.setDisable(false);
                         pStatus.setText("Update failed: " + res.message());

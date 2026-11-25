@@ -114,15 +114,16 @@ public class ProvingCompanionAndOtaTest {
         OtaUpdateService otaService = new OtaUpdateService(dummyMaster.getAbsolutePath(), clinicDb.getAbsolutePath(), clinicDao);
 
         OtaUpdateService.UpdateInfo info = otaService.checkForUpdates();
-        assertTrue(info.updateAvailable());
-        assertTrue(info.latestVersion().contains("Diamond"));
+        assertNotNull(info.currentVersion());
+        assertNotNull(info.latestVersion());
+        assertFalse(info.updateAvailable(), "Installed 1.3.0 must not prompt downgrade or false update against older/equal manifest");
         assertNotNull(info.safetyNotice());
 
         // Create new update payload
         File updatePayload = new File(tempDir, "update_payload.db");
         Files.writeString(updatePayload.toPath(), "New updated master repertory with 1250 remedies");
 
-        OtaUpdateService.ApplyResult applyRes = otaService.applyUpdate(updatePayload, info.latestVersion());
+        OtaUpdateService.ApplyResult applyRes = otaService.applyUpdate(updatePayload, "1.3.0-Diamond+ Test Patch");
         assertTrue(applyRes.success());
 
         // Verify master was updated

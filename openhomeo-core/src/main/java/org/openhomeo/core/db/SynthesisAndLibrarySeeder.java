@@ -129,11 +129,9 @@ public class SynthesisAndLibrarySeeder {
                 }
             }
 
-            // Seed Materia Medica Books & Sections if empty
-            try (ResultSet rs = stmt.executeQuery("SELECT count(*) FROM mm_books")) {
-                if (rs.next() && rs.getInt(1) == 0) {
-                    seedMateriaMedicaLibrary(conn);
-                }
+            // Seed or Upgrade Full 1,500-Volume Materia Medica Digital Library
+            if (DigitalLibraryCatalogSeeder.needsLibraryUpgrade(conn)) {
+                DigitalLibraryCatalogSeeder.seedFull1500Library(conn);
             }
         }
     }
@@ -360,138 +358,5 @@ public class SynthesisAndLibrarySeeder {
         ps.setString(6, ref);
         ps.setBoolean(7, verified);
         ps.addBatch();
-    }
-
-    private static void seedMateriaMedicaLibrary(Connection conn) throws SQLException {
-        log.info("Seeding 1,500-Book Materia Medica Digital Library foundation & FTS5 full-text index...");
-
-        // 1. Seed Books Metadata
-        String sqlBook = "INSERT OR REPLACE INTO mm_books (id, title, author, era, category, description, total_sections) VALUES (?, ?, ?, ?, ?, ?, ?);";
-        try (PreparedStatement psB = conn.prepareStatement(sqlBook)) {
-            addBook(psB, "bk-organon", "Organon of Medicine (6th Edition)", "Samuel Hahnemann", "1842", "PHILOSOPHY",
-                    "The primary foundational philosophical treatise of Classical Homeopathy, detailing posology (§246-248), dynamic potencies, and law of similars.", 291);
-            addBook(psB, "bk-mmpura", "Materia Medica Pura (Vols 1-6)", "Samuel Hahnemann", "1830", "CLASSICAL_PROVINGS",
-                    "The pristine experimental drug provings conducted by Samuel Hahnemann on healthy human subjects without adulteration.", 67);
-            addBook(psB, "bk-chronic", "The Chronic Diseases: Their Peculiar Nature and Homoeopathic Cure", "Samuel Hahnemann", "1835", "CLASSICAL_PROVINGS",
-                    "The master exposition of the fundamental chronic miasms: Psora, Sycosis, and Syphilis, with in-depth antipsoric provings.", 48);
-            addBook(psB, "bk-kent-lect", "Lectures on Homoeopathic Materia Medica", "James Tyler Kent", "1905", "CLINICAL_THERAPEUTICS",
-                    "Comprehensive clinical portraits of polychrests and remedies delivered at the Post-Graduate School of Homoeopaths in Chicago.", 217);
-            addBook(psB, "bk-kent-phil", "Lectures on Homoeopathic Philosophy", "James Tyler Kent", "1900", "PHILOSOPHY",
-                    "Invaluable clinical philosophy expounding Kent's 12 Observations, the Vital Force, degrees, and posology repetition laws.", 37);
-            addBook(psB, "bk-boericke", "Pocket Manual of Homoeopathic Materia Medica & Repertory", "William Boericke", "1901", "CLINICAL_THERAPEUTICS",
-                    "Exhaustive concise clinical compendium containing symptom pathogenesy for over 1,400 remedies.", 1420);
-            addBook(psB, "bk-clarke-dict", "A Dictionary of Practical Materia Medica (3 Volumes)", "John Henry Clarke", "1902", "CLINICAL_THERAPEUTICS",
-                    "Monumental three-volume English clinical encyclopedia documenting toxicology, clinical hints, and relations.", 1087);
-            addBook(psB, "bk-nash-leaders", "Leaders in Homoeopathic Therapeutics", "Eugene Beauharnais Nash", "1899", "CLINICAL_THERAPEUTICS",
-                    "Practical clinical keynotes, 'trio' remedy groupings, and personal case reflections by one of America's greatest prescribers.", 175);
-            addBook(psB, "bk-hering-guiding", "The Guiding Symptoms of our Materia Medica (10 Volumes)", "Constantine Hering", "1879", "CLASSICAL_PROVINGS",
-                    "Ten massive volumes cross-referencing proven symptoms with cured clinical confirmations across half a century.", 950);
-            addBook(psB, "bk-boger-synoptic", "A Synoptic Key of the Materia Medica", "Cyrus Maxwell Boger", "1915", "REPERTORY_SYNOPTIC",
-                    "Precision differential diagnostic guide emphasizing regional tissue affinities, modalities, and polarities.", 320);
-            addBook(psB, "bk-allen-encyclopedia", "The Encyclopedia of Pure Materia Medica (10 Volumes)", "Timothy Field Allen", "1874", "CLASSICAL_PROVINGS",
-                    "The definitive exhaustive ten-volume record of all global provings and toxicology in pure chronological order.", 1050);
-            addBook(psB, "bk-ccrh-indigenous", "Clinical Verification of Indigenous Indian Drugs", "CCRH (Govt. of India)", "2024", "REGIONAL_INDIGENOUS",
-                    "Modern pharmacological and clinical verification monographs of Ayurvedic and Indian flora in classical potency.", 112);
-            psB.executeBatch();
-        }
-
-        // 2. Seed Monograph Sections & populate FTS5
-        String sqlSec = "INSERT OR REPLACE INTO mm_library_sections (id, book_id, book_title, author, remedy_name, section_heading, body_text, page_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?);";
-        String sqlFts = "INSERT INTO mm_library_fts (book_id, author, remedy_name, section_heading, body_text) VALUES (?, ?, ?, ?, ?);";
-
-        try (PreparedStatement psS = conn.prepareStatement(sqlSec);
-             PreparedStatement psF = conn.prepareStatement(sqlFts)) {
-
-            // Hahnemann Organon Posology §246-248
-            addSection(psS, psF, "sec-org-246", "bk-organon", "Organon of Medicine (6th Edition)", "Samuel Hahnemann", "General Posology",
-                    "§ 246 - Repetition of Doses in Chronic Disease",
-                    "In chronic diseases, every perceptibly progressing and strikingly increasing amelioration during the treatment is a condition which, as long as it lasts, forbids any repetition of any medicine whatsoever, because all the good the medicine taken is capable of doing is here still going on. Every new dose of any medicine, even of the one last administered, would in this case disturb the work of amelioration. But in the 6th edition, by succussing the modified water dose (plussing), we can repeat daily or every other day without aggravation.",
-                    "Organon §246");
-
-            addSection(psS, psF, "sec-org-248", "bk-organon", "Organon of Medicine (6th Edition)", "Samuel Hahnemann", "General Posology",
-                    "§ 248 - The Fifty-Millesimal (LM) Plussing Method",
-                    "For this purpose, we dissolve one or two globules in 40, 30, 20, or 8 tablespoons of water with a little alcohol. Before giving each dose, the bottle is to be succussed 8, 10 or 12 times. This gives the vital force an imperceptible modification of degree, accelerating cure without provoking severe homeopathic aggravations.",
-                    "Organon §248");
-
-            // Kent on Arsenicum
-            addSection(psS, psF, "sec-kent-ars", "bk-kent-lect", "Lectures on Homoeopathic Materia Medica", "James Tyler Kent", "Arsenicum album",
-                    "Arsenicum album - General Clinical Portrait",
-                    "Arsenicum is a chilly medicine; cold in general aggravates, heat in general ameliorates. The patient is sensitive to cold air, wants warm clothing and warm rooms, desires warm food and drinks. The only exception is the headache, which is temporarily relieved by cold bathing. Mentally, Arsenicum is filled with anxiety, restlessness, and fear of death. The restlessness is bodily and mental; he moves from bed to chair, cannot rest anywhere. Aggravation from 1 to 2 AM. Burning pains like red-hot needles, yet paradoxically relieved by hot water or hot wraps.",
-                    "Kent Lectures p. 112");
-
-            // Boericke on Azadirachta indica
-            addSection(psS, psF, "sec-boer-azad", "bk-boericke", "Pocket Manual of Homoeopathic Materia Medica & Repertory", "William Boericke", "Azadirachta indica",
-                    "Azadirachta indica (Margosa Bark / Neem)",
-                    "An afternoon fever and rheumatic pain in various parts are very characteristic of this drug. Burning in eyes; bitter taste in mouth; morning diarrhea. Fever commences about 3 to 4.30 PM with slight chill without thirst, followed by glowing heat, burning in face, hands and feet, with profuse sweat on forehead and neck.",
-                    "Boericke p. 98");
-
-            // Nash Leaders on Arsenicum
-            addSection(psS, psF, "sec-nash-ars", "bk-nash-leaders", "Leaders in Homoeopathic Therapeutics", "Eugene Beauharnais Nash", "Arsenicum album",
-                    "The Trio of Burning Remedies: Arsenic, Phosphorus, Sulphur",
-                    "Arsenicum stands at the head of the list of burning remedies. Burning in the stomach, burning in the skin, burning in the ulcers, burning in the veins. But note the great distinguishing keynote: The burning of Arsenicum is ameliorated by heat (warm wraps, hot applications), while Secale burns and wants cold, and Sulphur burns and wants to uncover.",
-                    "Nash Leaders p. 45");
-
-            // Clarke on Lycopodium
-            addSection(psS, psF, "sec-clark-lyc", "bk-clarke-dict", "A Dictionary of Practical Materia Medica (3 Volumes)", "John Henry Clarke", "Lycopodium clavatum",
-                    "Lycopodium clavatum - Characteristics & Clinical Hints",
-                    "Lycopodium is predominantly a right-sided medicine, or acts from right to left (throat, abdomen, chest, ovary). Aggravation between 4 and 8 PM. Great accumulation of flatulence in abdomen with rolling rumbling sounds; cannot bear tight clothing around waist. Desires hot food and warm drinks. Fan-like motion of the alae nasi in respiratory diseases.",
-                    "Clarke Dict Vol II, p. 325");
-
-            // Kent Philosophy on 12 Observations
-            addSection(psS, psF, "sec-kent-obs11", "bk-kent-phil", "Lectures on Homoeopathic Philosophy", "James Tyler Kent", "Prognostic Observations",
-                    "The 11th Observation - When Old Symptoms Return",
-                    "When old symptoms return in reverse order of their appearance, the prognosis is highly favorable. The disease is leaving the patient by the exact path it entered, fulfilling Hering's Law of Cure. The physician must strictly avoid giving any medicine whatsoever while old symptoms are returning; waiting and observing is the highest duty of the homeopath.",
-                    "Kent Phil Lec. XXXVI, p. 278");
-
-            // CCRH on Terminalia arjuna
-            addSection(psS, psF, "sec-ccrh-arjuna", "bk-ccrh-indigenous", "Clinical Verification of Indigenous Indian Drugs", "CCRH (Govt. of India)", "Terminalia arjuna",
-                    "Terminalia arjuna - Inotropic & Clinical Cardioprotection",
-                    "Clinical verification in over 450 multicenter hospital cases confirmed its profound efficacy in angina pectoris, ischemic heart disease, and post-infarction rehabilitation. Modulates cardiac enzymes, normalizes rhythm in tachycardia, and strengthens left ventricular ejection fraction in mother tincture and 3X to 30C potencies.",
-                    "CCRH Vol IV, Monograph 12");
-
-            psS.executeBatch();
-            try {
-                psF.executeBatch();
-            } catch (SQLException ftsBatchEx) {
-                log.warn("FTS batch insertion note: {}", ftsBatchEx.getMessage());
-            }
-
-            log.info("Materia Medica Digital Library successfully initialized with foundational classical volumes.");
-        }
-    }
-
-    private static void addBook(PreparedStatement ps, String id, String title, String author,
-                                String era, String cat, String desc, int secCount) throws SQLException {
-        ps.setString(1, id);
-        ps.setString(2, title);
-        ps.setString(3, author);
-        ps.setString(4, era);
-        ps.setString(5, cat);
-        ps.setString(6, desc);
-        ps.setInt(7, secCount);
-        ps.addBatch();
-    }
-
-    private static void addSection(PreparedStatement psS, PreparedStatement psF,
-                                   String id, String bookId, String bookTitle, String author,
-                                   String remedy, String heading, String body, String pageRef) throws SQLException {
-        psS.setString(1, id);
-        psS.setString(2, bookId);
-        psS.setString(3, bookTitle);
-        psS.setString(4, author);
-        psS.setString(5, remedy);
-        psS.setString(6, heading);
-        psS.setString(7, body);
-        psS.setString(8, pageRef);
-        psS.addBatch();
-
-        if (psF != null) {
-            psF.setString(1, bookId);
-            psF.setString(2, author);
-            psF.setString(3, remedy);
-            psF.setString(4, heading);
-            psF.setString(5, body);
-            psF.addBatch();
-        }
     }
 }

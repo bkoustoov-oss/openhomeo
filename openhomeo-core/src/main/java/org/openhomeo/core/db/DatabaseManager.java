@@ -1,5 +1,9 @@
 package org.openhomeo.core.db;
 
+import org.openhomeo.core.image.ImageVaultService;
+import org.openhomeo.core.net.ClinicNetworkServer;
+import org.openhomeo.core.net.DeploymentProfile;
+import org.openhomeo.core.net.RemoteClinicConnection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -15,17 +19,22 @@ import java.sql.Statement;
 
 /**
  * Manages connections and lifecycle for both:
- * 1. Master Knowledge Base Database (master_repertory.db) - Read-only seed
- * 2. User Clinic EMR Database (user_clinic.db) - Transactional encrypted data
+ * 1. Master Knowledge Base Database (master_repertory.db) - Read-only local FTS5 seed
+ * 2. User Clinic EMR Database (user_clinic.db) - Supports Standalone, Shared Clinic Server, or Client Terminal RPC mode.
  */
 public class DatabaseManager {
     private static final Logger log = LoggerFactory.getLogger(DatabaseManager.class);
 
+    private final String baseDataDir;
     private final String masterDbPath;
     private final String clinicDbPath;
     private String activeEncryptionKey;
 
+    private volatile DeploymentProfile deploymentProfile;
+    private volatile ClinicNetworkServer networkServer;
+
     public DatabaseManager(String baseDataDir) {
+        this.baseDataDir = baseDataDir;
         File dataDir = new File(baseDataDir);
         if (!dataDir.exists()) {
             dataDir.mkdirs();
@@ -33,6 +42,7 @@ public class DatabaseManager {
 
         this.masterDbPath = new File(dataDir, "master_repertory.db").getAbsolutePath();
         this.clinicDbPath = new File(dataDir, "user_clinic.db").getAbsolutePath();
+        this.deploymentProfile = DeploymentProfile.load(baseDataDir);
 
         ensureMasterDatabaseSeeded();
         initializeMasterSchemaAndSeeding();
@@ -40,6 +50,59 @@ public class DatabaseManager {
 
     public synchronized void setEncryptionKey(String key) {
         this.activeEncryptionKey = key;
+    }
+
+    public String getBaseDataDir() {
+        return baseDataDir;
+    }
+
+    public DeploymentProfile getDeploymentProfile() {
+        return deploymentProfile;
+    }
+
+    public boolean isClientMode() {
+        return deploymentProfile != null && deploymentProfile.mode() == DeploymentProfile.DeploymentMode.CLIENT;
+    }
+
+    public boolean isServerMode() {
+        return deploymentProfile != null && deploymentProfile.mode() == DeploymentProfile.DeploymentMode.SERVER;
+    }
+
+    public ClinicNetworkServer getNetworkServer() {
+        return networkServer;
+    }
+
+    public synchronized void startClinicServerIfConfigured(ImageVaultService vaultService) {
+        if (isServerMode() && (networkServer == null || !networkServer.isRunning())) {
+            try {
+                int port = deploymentProfile.serverPort() > 0 ? deploymentProfile.serverPort() : DeploymentProfile.DEFAULT_RPC_PORT;
+                networkServer = new ClinicNetworkServer(
+                        clinicDbPath, activeEncryptionKey, vaultService,
+                        port, deploymentProfile.pairingKey(), deploymentProfile.clinicLabel()
+                );
+                networkServer.start();
+            } catch (Exception e) {
+                log.error("Failed to start Clinic Network Database Server", e);
+            }
+        }
+    }
+
+    public synchronized void stopClinicServer() {
+        if (networkServer != null) {
+            networkServer.stop();
+            networkServer = null;
+        }
+    }
+
+    public synchronized void reconfigureDeployment(DeploymentProfile newProfile, ImageVaultService localVault) {
+        stopClinicServer();
+        this.deploymentProfile = newProfile;
+        DeploymentProfile.save(baseDataDir, newProfile);
+        if (newProfile.mode() == DeploymentProfile.DeploymentMode.SERVER) {
+            startClinicServerIfConfigured(localVault);
+        }
+        log.info("Workstation deployment switched cleanly to mode: {} ({}:{})",
+                newProfile.mode(), newProfile.serverHost(), newProfile.serverPort());
     }
 
     private void ensureMasterDatabaseSeeded() {
@@ -92,12 +155,18 @@ public class DatabaseManager {
     }
 
     public Connection getClinicConnection() throws SQLException {
+        DeploymentProfile profile = this.deploymentProfile;
+        if (profile != null && profile.mode() == DeploymentProfile.DeploymentMode.CLIENT) {
+            return new RemoteClinicConnection(profile.getBaseUrl(), profile.pairingKey());
+        }
+
         Connection conn = DriverManager.getConnection("jdbc:sqlite:" + clinicDbPath);
         try (Statement stmt = conn.createStatement()) {
             if (activeEncryptionKey != null && !activeEncryptionKey.isBlank()) {
                 // If SQLCipher native extension is loaded, PRAGMA key activates page encryption
                 stmt.execute("PRAGMA key = '" + activeEncryptionKey.replace("'", "''") + "';");
             }
+            stmt.execute("PRAGMA busy_timeout = 10000;");
             stmt.execute("PRAGMA journal_mode = WAL;");
             stmt.execute("PRAGMA foreign_keys = ON;");
             stmt.execute("PRAGMA synchronous = NORMAL;");

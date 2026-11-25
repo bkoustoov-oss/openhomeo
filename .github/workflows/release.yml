@@ -1,66 +1,276 @@
-name: OpenHomeo Workstation Automated Release
+name: Build & Publish Native Multi-Platform Releases
 
 on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release semver without leading v (e.g. 1.3.0)'
+        required: false
+        default: '1.3.0'
 
 permissions:
   contents: write
 
 jobs:
-  release:
-    name: Build & Publish Release Bundles
+  build-windows:
+    name: Windows (.msi + .zip)
     runs-on: windows-latest
-
     steps:
-      - name: Checkout Code
+      - name: Checkout Source
         uses: actions/checkout@v4
 
-      - name: Set up JDK 21 LTS
+      - name: Set up Java 21 LTS
         uses: actions/setup-java@v4
         with:
           java-version: '21'
           distribution: 'temurin'
-          cache: maven
+          cache: 'maven'
 
-      - name: Set up Rust & Cargo
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Build Native Rust Core
-        run: |
-          cd native-core
-          cargo build --release
-
-      - name: Build OpenHomeo Workstation (Java 21 LTS Release)
-        run: mvn clean package -DskipTests
-
-      - name: Package Standalone Universal Release Bundles
+      - name: Ensure WiX Toolset v3 (candle/light) for Native MSI
         shell: pwsh
-        run: ./package-release.ps1
+        run: |
+          $candle = Get-Command candle.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
+          if (-not $candle) {
+            $candle = Get-ChildItem "C:\Program Files*","C:\ProgramData*" -Recurse -Filter "candle.exe" -ErrorAction SilentlyContinue |
+              Select-Object -First 1 -ExpandProperty FullName
+          }
+          if (-not $candle) {
+            choco install wixtoolset --version=3.14.1.8722 -y --no-progress
+            if ($LASTEXITCODE -ne 0) {
+              choco install wixtoolset -y --no-progress
+            }
+            $candle = Get-ChildItem "C:\Program Files*","C:\ProgramData*" -Recurse -Filter "candle.exe" -ErrorAction SilentlyContinue |
+              Select-Object -First 1 -ExpandProperty FullName
+          }
+          if ($candle) {
+            $dir = Split-Path -Parent $candle
+            Write-Host "Using WiX Toolset at $dir"
+            "$dir" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          } else {
+            throw "WiX candle.exe not found; cannot build .msi installer."
+          }
 
-      - name: Create GitHub Release and Upload Assets
+      - name: Resolve Release SemVer
+        id: ver
+        shell: pwsh
+        run: |
+          $raw = "${{ github.event.inputs.version }}"
+          if (-not $raw -and "${{ github.ref_name }}" -match '^v(\d+\.\d+\.\d+)') {
+            $raw = $matches[1]
+          }
+          if (-not $raw) {
+            $props = Get-Content "openhomeo-core/src/main/resources/openhomeo-version.properties" | ConvertFrom-StringData
+            $raw = $props['openhomeo.semver']
+          }
+          "semver=$raw" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Package Windows MSI & Portable Zip
+        shell: pwsh
+        run: |
+          .\package-release.ps1 -Version "${{ steps.ver.outputs.semver }}"
+          if (-not (Test-Path "dist/OpenHomeo-v${{ steps.ver.outputs.semver }}-Windows.msi")) {
+            throw "Expected Windows MSI installer was not generated."
+          }
+
+      - name: Upload Windows Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installers
+          path: |
+            dist/OpenHomeo-v*-Windows.msi
+            dist/OpenHomeo-v*-Windows.zip
+
+  build-macos:
+    name: macOS (.dmg + .pkg + .tar.gz)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21 LTS
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Resolve Release SemVer
+        id: ver
+        run: |
+          RAW="${{ github.event.inputs.version }}"
+          if [ -z "$RAW" ] && echo "${{ github.ref_name }}" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+'; then
+            RAW="${GITHUB_REF_NAME#v}"
+          fi
+          if [ -z "$RAW" ]; then
+            RAW=$(awk -F'=' '/^openhomeo.semver=/{print $2}' openhomeo-core/src/main/resources/openhomeo-version.properties)
+          fi
+          echo "semver=$RAW" >> "$GITHUB_OUTPUT"
+          echo "arch=$(uname -m)" >> "$GITHUB_OUTPUT"
+
+      - name: Build & Package macOS DMG, PKG & Tarball
+        run: |
+          VER="${{ steps.ver.outputs.semver }}"
+          ARCH="${{ steps.ver.outputs.arch }}"
+          mvn -B package -DskipTests
+          mvn -B dependency:copy-dependencies -pl openhomeo-gui -DincludeScope=runtime
+
+          STAGE="dist/_mac_input"
+          mkdir -p "$STAGE/lib" "dist/_mac_out" "dist/OpenHomeo-v${VER}-macOS"
+          cp openhomeo-gui/target/openhomeo-gui-1.0.0-SNAPSHOT.jar "$STAGE/"
+          for f in openhomeo-gui/target/dependency/*.jar; do
+            base=$(basename "$f")
+            case "$base" in
+              *junit*|*opentest4j*|*apiguardian*|*hamcrest*|*openhomeo-core*) continue ;;
+              *) cp "$f" "$STAGE/lib/" ;;
+            esac
+          done
+
+          # Generate Apple .icns from PNG
+          mkdir -p dist/OpenHomeo.iconset
+          PNG_SRC="openhomeo-gui/src/main/resources/icons/openhomeo.png"
+          sips -z 16 16     "$PNG_SRC" --out dist/OpenHomeo.iconset/icon_16x16.png
+          sips -z 32 32     "$PNG_SRC" --out dist/OpenHomeo.iconset/icon_16x16@2x.png
+          sips -z 32 32     "$PNG_SRC" --out dist/OpenHomeo.iconset/icon_32x32.png
+          sips -z 64 64     "$PNG_SRC" --out dist/OpenHomeo.iconset/icon_32x32@2x.png
+          sips -z 128 128   "$PNG_SRC" --out dist/OpenHomeo.iconset/icon_128x128.png
+          sips -z 256 256   "$PNG_SRC" --out dist/OpenHomeo.iconset/icon_128x128@2x.png
+          sips -z 256 256   "$PNG_SRC" --out dist/OpenHomeo.iconset/icon_256x256.png
+          sips -z 512 512   "$PNG_SRC" --out dist/OpenHomeo.iconset/icon_256x256@2x.png
+          iconutil -c icns dist/OpenHomeo.iconset -o dist/OpenHomeo.icns
+
+          MODULES="java.base,java.datatransfer,java.desktop,java.logging,java.management,java.naming,java.net.http,java.scripting,java.security.jgss,java.sql,java.xml,jdk.crypto.ec,jdk.httpserver,jdk.unsupported"
+
+          for PKG_TYPE in dmg pkg app-image; do
+            jpackage \
+              --type "$PKG_TYPE" \
+              --name OpenHomeo \
+              --app-version "$VER" \
+              --vendor "OpenHomeo Project" \
+              --description "OpenHomeo Classical Homeopathy Workstation" \
+              --input "$STAGE" \
+              --main-jar openhomeo-gui-1.0.0-SNAPSHOT.jar \
+              --main-class org.openhomeo.gui.Main \
+              --add-modules "$MODULES" \
+              --java-options "--enable-native-access=ALL-UNNAMED" \
+              --icon dist/OpenHomeo.icns \
+              --mac-package-identifier org.openhomeo.workstation \
+              --dest dist/_mac_out
+          done
+
+          mv dist/_mac_out/OpenHomeo-*.dmg "dist/OpenHomeo-v${VER}-macOS-${ARCH}.dmg"
+          mv dist/_mac_out/OpenHomeo-*.pkg "dist/OpenHomeo-v${VER}-macOS-${ARCH}.pkg"
+          cp -R dist/_mac_out/OpenHomeo.app "dist/OpenHomeo-v${VER}-macOS/"
+          cp packaging/openhomeo.sh "dist/OpenHomeo-v${VER}-macOS/openhomeo.sh"
+          cp packaging/uninstall-unix.sh "dist/OpenHomeo-v${VER}-macOS/uninstall-mac.sh"
+          chmod +x "dist/OpenHomeo-v${VER}-macOS/"*.sh
+          tar -czf "dist/OpenHomeo-v${VER}-macOS.tar.gz" -C dist "OpenHomeo-v${VER}-macOS"
+
+      - name: Upload macOS Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-installers
+          path: |
+            dist/OpenHomeo-v*-macOS-*.dmg
+            dist/OpenHomeo-v*-macOS-*.pkg
+            dist/OpenHomeo-v*-macOS.tar.gz
+
+  build-linux:
+    name: Linux Generic Distro-Independent (.tar.gz)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21 LTS
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Resolve Release SemVer
+        id: ver
+        run: |
+          RAW="${{ github.event.inputs.version }}"
+          if [ -z "$RAW" ] && echo "${{ github.ref_name }}" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+'; then
+            RAW="${GITHUB_REF_NAME#v}"
+          fi
+          if [ -z "$RAW" ]; then
+            RAW=$(awk -F'=' '/^openhomeo.semver=/{print $2}' openhomeo-core/src/main/resources/openhomeo-version.properties)
+          fi
+          echo "semver=$RAW" >> "$GITHUB_OUTPUT"
+
+      - name: Build Generic Linux Distro-Independent Tarball
+        run: |
+          VER="${{ steps.ver.outputs.semver }}"
+          mvn -B package -DskipTests
+          mvn -B dependency:copy-dependencies -pl openhomeo-gui -DincludeScope=runtime
+
+          STAGE="dist/_linux_input"
+          mkdir -p "$STAGE/lib" "dist/_linux_out"
+          cp openhomeo-gui/target/openhomeo-gui-1.0.0-SNAPSHOT.jar "$STAGE/"
+          for f in openhomeo-gui/target/dependency/*.jar; do
+            base=$(basename "$f")
+            case "$base" in
+              *junit*|*opentest4j*|*apiguardian*|*hamcrest*|*openhomeo-core*) continue ;;
+              *) cp "$f" "$STAGE/lib/" ;;
+            esac
+          done
+
+          MODULES="java.base,java.datatransfer,java.desktop,java.logging,java.management,java.naming,java.net.http,java.scripting,java.security.jgss,java.sql,java.xml,jdk.crypto.ec,jdk.httpserver,jdk.unsupported"
+
+          jpackage \
+            --type app-image \
+            --name OpenHomeo \
+            --app-version "$VER" \
+            --vendor "OpenHomeo Project" \
+            --description "OpenHomeo Classical Homeopathy Workstation" \
+            --input "$STAGE" \
+            --main-jar openhomeo-gui-1.0.0-SNAPSHOT.jar \
+            --main-class org.openhomeo.gui.Main \
+            --add-modules "$MODULES" \
+            --java-options "--enable-native-access=ALL-UNNAMED" \
+            --icon openhomeo-gui/src/main/resources/icons/openhomeo.png \
+            --dest dist/_linux_out
+
+          OUT_DIR="dist/OpenHomeo-v${VER}-Linux-x86_64"
+          mv dist/_linux_out/OpenHomeo "$OUT_DIR"
+          cp openhomeo-gui/src/main/resources/icons/openhomeo.png "$OUT_DIR/openhomeo.png"
+          cp packaging/openhomeo.sh "$OUT_DIR/openhomeo.sh"
+          cp packaging/install-linux.sh "$OUT_DIR/install-linux.sh"
+          cp packaging/uninstall-unix.sh "$OUT_DIR/uninstall-linux.sh"
+          chmod +x "$OUT_DIR"/*.sh "$OUT_DIR/bin/OpenHomeo"
+          tar -czf "dist/OpenHomeo-v${VER}-Linux-x86_64.tar.gz" -C dist "OpenHomeo-v${VER}-Linux-x86_64"
+
+      - name: Upload Linux Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-installers
+          path: dist/OpenHomeo-v*-Linux-x86_64.tar.gz
+
+  publish-release:
+    name: Publish Native GitHub Release Assets
+    needs: [build-windows, build-macos, build-linux]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Built Platform Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Generate SHA-256 Checksums
+        run: |
+          cd release-assets
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: "OpenHomeo Workstation ${{ github.ref_name }} (Diamond Edition)"
-          body: |
-            ## OpenHomeo Workstation ${{ github.ref_name }} - Diamond Edition 💎
-            Classical Homeopathy Clinical, Repertorization & Dispensary Workstation (100% Free Open-Source Software)
-
-            ### 🏛️ What's New in Version 1.2.0:
-            - **OpenSynthesis Repertory Scale**: Architecture with millions of additions, degrees (1-4), classical author citation codes (`k1`, `b1`, `bog1`, `a1`, `c1`, `boer1`, `h1`, `her1`, `ccrh24`), and cross-reference synonym network.
-            - **1,500-Book Materia Medica Digital Library**: Searchable with SQLite FTS5 + BM25 ranking across foundational treatises (Hahnemann, Kent, Boericke, Clarke, Nash, Hering, Boger, Allen, CCRH). Accessible to both Doctors and Admins for ready references and consultation with AI.
-            - **Families Tool & Taxonomy Classifier**: Taxonomy classification across Kingdoms (Plant via APG IV, Mineral Periodic Table Series 1-7 and Stages 1-18 via Jan Scholten, Animal phyla/classes, Nosodes, Sarcodes) and Classical Miasms, with matrix filtering and distribution charts.
-            - **WinChip-Alike Patient Management Module**: Longitudinal consultation follow-up comparison (side-by-side Visit N vs Visit N-1), automated Kent's 12 Observations evaluator, and Hering's Law directional cure tracker.
-            - **Upgraded Socratic Clinical Logic AI (Strictly Deterministic, NO LLM)**: Deep classical homeopathic intelligence that actively questions the doctor on proceedings (thermal contradiction challenges, posology repetition hazards, follow-up interventions) and features a **Doctor Supersede & Clinical Experience Capture** mechanism to preserve experiential clinical wisdom into a permanent Experience Vault.
-            - **100% Non-Destructive Update Guarantee**: All patient clinical records (`user_clinic.db`) remain strictly isolated, untouched, and safe.
-
-            ### 📦 Download Links:
-            - **Windows 10 / 11 Portable**: `OpenHomeo-${{ github.ref_name }}-Windows.zip`
-            - **macOS (Apple Silicon & Intel)**: `OpenHomeo-${{ github.ref_name }}-macOS.tar.gz` and `OpenHomeo-${{ github.ref_name }}-macOS.zip`
-          files: |
-            dist/OpenHomeo-*.zip
-            dist/OpenHomeo-*.tar.gz
-            ota_manifest.json
-          draft: false
-          prerelease: false
+          generate_release_notes: true
+          files: release-assets/*

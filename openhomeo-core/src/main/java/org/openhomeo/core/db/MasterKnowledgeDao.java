@@ -299,7 +299,7 @@ public class MasterKnowledgeDao {
 
     public List<MateriaMedicaBook> getAllMateriaMedicaBooks() throws SQLException {
         List<MateriaMedicaBook> list = new ArrayList<>();
-        String sql = "SELECT * FROM mm_books ORDER BY category ASC, author ASC, title ASC";
+        String sql = "SELECT * FROM mm_books ORDER BY CASE WHEN id LIKE 'bk-%' THEN 0 ELSE 1 END, id ASC";
         try (Connection conn = dbManager.getMasterConnection();
              Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery(sql)) {
@@ -316,6 +316,30 @@ public class MasterKnowledgeDao {
             }
         }
         return list;
+    }
+
+    public int getTotalLibrarySectionsCount() throws SQLException {
+        String sql = "SELECT count(*) FROM mm_library_sections";
+        try (Connection conn = dbManager.getMasterConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            return rs.next() ? rs.getInt(1) : 0;
+        }
+    }
+
+    public Optional<MateriaMedicaSection> getSectionExact(String bookId, String heading) throws SQLException {
+        String sql = "SELECT * FROM mm_library_sections WHERE book_id = ? AND section_heading = ? LIMIT 1";
+        try (Connection conn = dbManager.getMasterConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, bookId);
+            ps.setString(2, heading);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return Optional.of(mapSection(rs));
+                }
+            }
+        }
+        return Optional.empty();
     }
 
     public List<MateriaMedicaSection> getSectionsForBook(String bookId) throws SQLException {

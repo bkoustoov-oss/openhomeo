@@ -108,18 +108,29 @@ public class SynthesisFamiliesAndWinChipTest {
     @Test
     void testMateriaMedicaDigitalLibraryFts() throws SQLException {
         List<MateriaMedicaBook> books = masterDao.getAllMateriaMedicaBooks();
-        assertFalse(books.isEmpty(), "Materia Medica books should be indexed");
+        assertEquals(1500, books.size(), "All 1,500 Materia Medica & Philosophy volumes must be cataloged cleanly");
+        assertTrue(books.stream().allMatch(b -> b.totalSections() > 0), "Every volume in the 1,500-book library must contain searchable references");
+        assertTrue(masterDao.getTotalLibrarySectionsCount() >= 1500, "At least 1,500 full-text sections must be indexed");
         assertTrue(books.stream().anyMatch(b -> b.title().contains("Organon")), "Hahnemann Organon should be indexed");
         assertTrue(books.stream().anyMatch(b -> b.title().contains("Kent") || b.author().contains("Kent")), "Kent Lectures should be indexed");
         assertTrue(books.stream().anyMatch(b -> b.title().contains("Boericke") || b.author().contains("Boericke")), "Boericke should be indexed");
 
-        // Test Full-Text Search (FTS5 BM25)
+        // Verify direct opening of classical master treatises, monograph volumes, and specialty volumes returns content
+        assertFalse(masterDao.getSectionsForBook("bk-organon").isEmpty(), "Organon sections must load on direct click");
+        assertFalse(masterDao.getSectionsForBook("vol-0061").isEmpty(), "First TSV Monograph volume vol-0061 must contain full reference");
+        assertFalse(masterDao.getSectionsForBook("vol-0600").isEmpty(), "Mid-catalog Monograph volume vol-0600 must contain full reference");
+        assertFalse(masterDao.getSectionsForBook("vol-1500").isEmpty(), "Final volume vol-1500 must contain full reference");
+
+        // Test Full-Text Search (FTS5 BM25) across classical + HPI + pharmacopoeial references
         List<MateriaMedicaSearchResult> results = masterDao.searchMateriaMedicaFts("burning heat amel");
         assertFalse(results.isEmpty(), "FTS5 query 'burning heat amel' should return results");
         MateriaMedicaSearchResult first = results.get(0);
         assertNotNull(first.bookTitle());
         assertNotNull(first.remedyName());
         assertNotNull(first.snippet());
+
+        assertFalse(masterDao.searchMateriaMedicaFts("Azadirachta").isEmpty(), "FTS5 search for Azadirachta must return results");
+        assertFalse(masterDao.searchMateriaMedicaFts("Organon").isEmpty(), "FTS5 search for Organon must return results");
     }
 
     @Test

@@ -39,6 +39,7 @@ logs/
 
 # Strict Clinical Patient Confidentiality & EMR Databases (NEVER COMMIT)
 user_clinic.db*
+workstation_mode.properties
 *.ohbak
 backups/
 .openhomeo/

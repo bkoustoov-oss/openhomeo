@@ -9,6 +9,8 @@ import org.openhomeo.core.db.DatabaseManager;
 import org.openhomeo.core.db.MasterKnowledgeDao;
 import org.openhomeo.core.image.ImageVaultService;
 import org.openhomeo.core.model.User;
+import org.openhomeo.core.net.DeploymentProfile;
+import org.openhomeo.core.net.RemoteImageVaultService;
 import org.openhomeo.core.repertory.RepertorizationEngine;
 import org.openhomeo.core.repertory.SymptomClipboard;
 import org.openhomeo.core.security.SecurityService;
@@ -27,10 +29,12 @@ import java.util.UUID;
 public class OpenHomeoApp extends Application {
     private static final Logger log = LoggerFactory.getLogger(OpenHomeoApp.class);
 
+    private String appDataDir;
     private DatabaseManager dbManager;
     private MasterKnowledgeDao masterDao;
     private ClinicDao clinicDao;
     private SecurityService securityService;
+    private ImageVaultService localVault;
     private ImageVaultService imageVault;
     private SymptomClipboard symptomClipboard;
     private RepertorizationEngine repertorizationEngine;
@@ -39,52 +43,77 @@ public class OpenHomeoApp extends Application {
     public void init() throws Exception {
         log.info("Initializing OpenHomeo Native Desktop Workstation...");
 
-        String appDataDir = System.getProperty("user.home") + File.separator + ".openhomeo";
+        this.appDataDir = System.getProperty("user.home") + File.separator + ".openhomeo";
         File dir = new File(appDataDir);
         if (!dir.exists()) dir.mkdirs();
 
         this.dbManager = new DatabaseManager(appDataDir);
-        this.dbManager.initializeClinicSchema();
+        this.localVault = new ImageVaultService(appDataDir + File.separator + "vault");
+        refreshDeploymentServices();
 
         this.masterDao = new MasterKnowledgeDao(dbManager);
         this.clinicDao = new ClinicDao(dbManager);
         this.securityService = new SecurityService();
-        this.imageVault = new ImageVaultService(appDataDir + File.separator + "vault");
         this.symptomClipboard = new SymptomClipboard();
         this.repertorizationEngine = new RepertorizationEngine();
 
-        // Ensure default RBAC users exist
-        if (clinicDao.findUserByUsername("admin").isEmpty()) {
-            String hash = securityService.hashPassword("admin123");
-            clinicDao.createUser(new User(
-                    UUID.randomUUID().toString(), "admin", hash, "Dr. System Administrator", User.UserRole.ADMIN, Instant.now()
-            ));
-            log.info("Created default administrator account: admin / admin123");
+        if (!dbManager.isClientMode()) {
+            this.dbManager.initializeClinicSchema();
+            ensureDefaultRbacUsers();
+        } else {
+            log.info("CLIENT mode active -> Connected to Shared Clinic Server at {} (skipping local isolated DB seeding)",
+                    dbManager.getDeploymentProfile().getBaseUrl());
         }
-        if (clinicDao.findUserByUsername("doctor").isEmpty()) {
-            String hash = securityService.hashPassword("doctor123");
-            clinicDao.createUser(new User(
-                    UUID.randomUUID().toString(), "doctor", hash, "Dr. Consulting Physician, M.D. (Hom.)", User.UserRole.DOCTOR, Instant.now()
-            ));
-            log.info("Created default doctor account: doctor / doctor123");
+    }
+
+    public void refreshDeploymentServices() {
+        DeploymentProfile profile = dbManager.getDeploymentProfile();
+        if (profile != null && profile.mode() == DeploymentProfile.DeploymentMode.CLIENT) {
+            this.imageVault = new RemoteImageVaultService(
+                    appDataDir + File.separator + "cache" + File.separator + "vault",
+                    profile.getBaseUrl(),
+                    profile.pairingKey()
+            );
+        } else {
+            this.imageVault = this.localVault;
         }
-        if (clinicDao.findUserByUsername("pharmacist").isEmpty()) {
-            String hash = securityService.hashPassword("pharma123");
-            clinicDao.createUser(new User(
-                    UUID.randomUUID().toString(), "pharmacist", hash, "Dispensing Pharmacist, D.Pharm", User.UserRole.PHARMACIST, Instant.now()
-            ));
-            log.info("Created default pharmacist account: pharmacist / pharma123");
+        dbManager.startClinicServerIfConfigured(this.localVault);
+    }
+
+    public void ensureDefaultRbacUsers() {
+        try {
+            if (clinicDao.findUserByUsername("admin").isEmpty()) {
+                String hash = securityService.hashPassword("admin123");
+                clinicDao.createUser(new User(
+                        UUID.randomUUID().toString(), "admin", hash, "Dr. System Administrator", User.UserRole.ADMIN, Instant.now()
+                ));
+                log.info("Created default administrator account: admin / admin123");
+            }
+            if (clinicDao.findUserByUsername("doctor").isEmpty()) {
+                String hash = securityService.hashPassword("doctor123");
+                clinicDao.createUser(new User(
+                        UUID.randomUUID().toString(), "doctor", hash, "Dr. Consulting Physician, M.D. (Hom.)", User.UserRole.DOCTOR, Instant.now()
+                ));
+                log.info("Created default doctor account: doctor / doctor123");
+            }
+            if (clinicDao.findUserByUsername("pharmacist").isEmpty()) {
+                String hash = securityService.hashPassword("pharma123");
+                clinicDao.createUser(new User(
+                        UUID.randomUUID().toString(), "pharmacist", hash, "Dispensing Pharmacist, D.Pharm", User.UserRole.PHARMACIST, Instant.now()
+                ));
+                log.info("Created default pharmacist account: pharmacist / pharma123");
+            }
+        } catch (Exception e) {
+            log.warn("Note checking default RBAC users: {}", e.getMessage());
         }
     }
 
     @Override
     public void start(Stage primaryStage) {
-        // Set modern AtlantaFX theme
         Application.setUserAgentStylesheet(new PrimerLight().getUserAgentStylesheet());
 
         primaryStage.setTitle("OpenHomeo Workstation - Professional Edition");
 
-        // Load application branding icon
         try {
             var iconStream = OpenHomeoApp.class.getResourceAsStream("/icons/openhomeo.png");
             if (iconStream != null) {
@@ -94,7 +123,6 @@ public class OpenHomeoApp extends Application {
             log.warn("Could not load application icon: {}", e.getMessage());
         }
 
-        // Screen adaptive dimensions
         javafx.geometry.Rectangle2D screenBounds = javafx.stage.Screen.getPrimary().getVisualBounds();
         double targetWidth = Math.min(1280, screenBounds.getWidth() * 0.95);
         double targetHeight = Math.min(850, screenBounds.getHeight() * 0.92);
@@ -106,16 +134,12 @@ public class OpenHomeoApp extends Application {
 
         showLoginScreen(primaryStage);
 
-        // Center on screen
         primaryStage.centerOnScreen();
-
-        // Bring to front over any active maximized windows
         primaryStage.setAlwaysOnTop(true);
         primaryStage.show();
         primaryStage.toFront();
         primaryStage.requestFocus();
 
-        // Release topmost lock after presentation so window behaves normally
         javafx.application.Platform.runLater(() -> {
             primaryStage.setAlwaysOnTop(false);
             primaryStage.requestFocus();
@@ -126,7 +150,18 @@ public class OpenHomeoApp extends Application {
     }
 
     private void showLoginScreen(Stage primaryStage) {
-        LoginView loginView = new LoginView(clinicDao, securityService, user -> {
+        LoginView loginView = new LoginView(clinicDao, securityService, dbManager, () -> {
+            refreshDeploymentServices();
+            if (!dbManager.isClientMode()) {
+                try {
+                    dbManager.initializeClinicSchema();
+                    ensureDefaultRbacUsers();
+                } catch (Exception ex) {
+                    log.warn("Schema check on mode switch: {}", ex.getMessage());
+                }
+            }
+        }, user -> {
+            refreshDeploymentServices();
             securityService.startSession(user);
             MainWindow mainWindow = new MainWindow(
                     primaryStage, masterDao, clinicDao, securityService,
@@ -144,6 +179,14 @@ public class OpenHomeoApp extends Application {
         } else {
             primaryStage.getScene().setRoot(loginView);
         }
+    }
+
+    @Override
+    public void stop() throws Exception {
+        if (dbManager != null) {
+            dbManager.stopClinicServer();
+        }
+        super.stop();
     }
 
     public static void main(String[] args) {

@@ -16,7 +16,6 @@ import org.openhomeo.core.db.ClinicDao;
 import org.openhomeo.core.backup.ClinicBackupService;
 import org.openhomeo.core.materia_medica.ProvingIngestionService;
 import org.openhomeo.core.model.*;
-import org.openhomeo.core.net.NetworkDiscoveryService;
 import org.openhomeo.core.net.RemoteDatabaseManager;
 import org.openhomeo.core.ota.OtaUpdateService;
 import org.openhomeo.core.security.SecurityService;
@@ -43,7 +42,7 @@ import java.util.UUID;
  * 3. User Accounts and RBAC Privilege Governance
  * 4. Strictly Confidential "Report of Faith" (Prescription AI Discrepancy & Hazard Dossier)
  * 5. Review and Approve Doctor Remarks for Phytochemical & Pharmacological Constituents
- * 6. LAN Auto-Discovery, Dedicated Server Host, and Remote SSH / Reverse SSH (autossh) Settings
+ * 6. Client/Server Shared Clinic DB, LAN Auto-Discovery, and Remote SSH / Reverse SSH (autossh) Settings
  */
 public class AdminManagementView extends BorderPane {
     private static final Logger log = LoggerFactory.getLogger(AdminManagementView.class);
@@ -51,7 +50,6 @@ public class AdminManagementView extends BorderPane {
     private final ClinicDao clinicDao;
     private final SecurityService securityService;
     private final ClinicBackupService backupService;
-    private final NetworkDiscoveryService discoveryService = new NetworkDiscoveryService();
 
     // Data lists
     private final ObservableList<Doctor> doctorsList = FXCollections.observableArrayList();
@@ -1279,150 +1277,284 @@ public class AdminManagementView extends BorderPane {
         ScrollPane scroll = new ScrollPane();
         scroll.setFitToWidth(true);
 
-        VBox root = new VBox(16);
+        VBox root = new VBox(14);
         root.setPadding(new Insets(16));
 
-        Label secTitle = new Label("Clinic Distributed Network & Remote SSH Tunnel Architecture");
-        secTitle.setFont(Font.font("Segoe UI", FontWeight.BOLD, 15));
+        Label secTitle = new Label("Clinic Distributed Client / Server & Remote SSH Architecture");
+        secTitle.setFont(Font.font("Segoe UI", FontWeight.BOLD, 16));
 
         Label expl = new Label(
-                "Configure how practitioners and pharmacists across the clinic LAN or remote locations communicate. " +
-                "Workstations on the same local Wi-Fi / LAN automatically locate the clinic database via zero-config UDP beacon discovery."
+                "Separate Clinic Server Hosting from Client Terminals so doctors, pharmacists, and reception share one single " +
+                "authoritative user_clinic.db and Clinical Image Vault across LAN Wi-Fi or Remote SSH tunnels—never split local databases."
         );
         expl.setWrapText(true);
         expl.getStyleClass().add(Styles.TEXT_MUTED);
 
-        // Network mode selector
-        ComboBox<NetworkConfig.ConnectionMode> comboMode = new ComboBox<>(FXCollections.observableArrayList(
-                NetworkConfig.ConnectionMode.LOCAL_EMBEDDED,
-                NetworkConfig.ConnectionMode.LAN_DEDICATED_HOST,
-                NetworkConfig.ConnectionMode.REMOTE_SSH_TUNNEL
-        ));
-        comboMode.setValue(NetworkConfig.ConnectionMode.LOCAL_EMBEDDED);
+        org.openhomeo.core.db.DatabaseManager dbManager = clinicDao.getDatabaseManager();
+
+        Label lblModeBanner = new Label();
+        lblModeBanner.setWrapText(true);
+        lblModeBanner.setMaxWidth(Double.MAX_VALUE);
+        lblModeBanner.setPadding(new Insets(10, 14, 10, 14));
+
+        ComboBox<org.openhomeo.core.net.DeploymentProfile.DeploymentMode> comboDeployment = new ComboBox<>(
+                FXCollections.observableArrayList(org.openhomeo.core.net.DeploymentProfile.DeploymentMode.values())
+        );
 
         GridPane form = new GridPane();
         form.setHgap(12);
         form.setVgap(10);
         form.setPadding(new Insets(10));
 
-        TextField txtRemoteHost = new TextField("192.168.1.100");
-        TextField txtRemotePort = new TextField("45824");
-        TextField txtRemoteDb = new TextField("user_clinic.db");
+        org.openhomeo.core.net.DeploymentProfile currentProfile = dbManager.getDeploymentProfile();
+        comboDeployment.setValue(currentProfile.mode());
+
+        TextField txtClinicLabel = new TextField(currentProfile.clinicLabel());
+        TextField txtRemoteHost = new TextField(currentProfile.serverHost());
+        TextField txtRemotePort = new TextField(String.valueOf(
+                currentProfile.serverPort() > 0 ? currentProfile.serverPort() : org.openhomeo.core.net.DeploymentProfile.DEFAULT_RPC_PORT
+        ));
+        TextField txtPairingKey = new TextField(currentProfile.pairingKey());
+        Button btnRegenKey = new Button("🎲 Generate Pairing Key");
+        btnRegenKey.setOnAction(ev -> txtPairingKey.setText(org.openhomeo.core.net.DeploymentProfile.generatePairingKey()));
+        HBox pairingRow = new HBox(8, txtPairingKey, btnRegenKey);
+        HBox.setHgrow(txtPairingKey, Priority.ALWAYS);
+
         TextField txtSshHost = new TextField("clinic.openhomeo.org");
         TextField txtSshPort = new TextField("22");
         TextField txtSshUser = new TextField("homeo_admin");
         TextField txtSshKey = new TextField("~/.ssh/id_rsa");
-        TextField txtReversePort = new TextField("45824");
+        TextField txtReversePort = new TextField("45825");
         CheckBox chkAutoSsh = new CheckBox("Enable persistent autossh supervisor daemon");
         chkAutoSsh.setSelected(true);
-        CheckBox chkBeacon = new CheckBox("Run LAN Discovery Beacon Server on this workstation");
+        CheckBox chkBeacon = new CheckBox("Advertise Server via LAN UDP Discovery Beacon (port 45824)");
         chkBeacon.setSelected(true);
 
-        form.addRow(0, new Label("Connection Architecture:"), comboMode);
-        form.addRow(1, new Label("Clinic Database Host IP / URL:"), txtRemoteHost);
-        form.addRow(2, new Label("Service / Database Port:"), txtRemotePort);
-        form.addRow(3, new Label("Remote Database Filename:"), txtRemoteDb);
-        form.addRow(4, new Label("SSH Gateway Host:"), txtSshHost);
-        form.addRow(5, new Label("SSH Port:"), txtSshPort);
-        form.addRow(6, new Label("SSH Login User:"), txtSshUser);
-        form.addRow(7, new Label("SSH Private Key File:"), txtSshKey);
-        form.addRow(8, new Label("Reverse SSH Port Forwarding:"), txtReversePort);
-        form.addRow(9, new Label("Supervision:"), chkAutoSsh);
-        form.addRow(10, new Label("LAN Auto-Discovery:"), chkBeacon);
+        form.addRow(0, new Label("Workstation Deployment Role:"), comboDeployment);
+        form.addRow(1, new Label("Clinic Server Label:"), txtClinicLabel);
+        form.addRow(2, new Label("Clinic Server IP / Hostname:"), txtRemoteHost);
+        form.addRow(3, new Label("Clinic RPC Port (default 45825):"), txtRemotePort);
+        form.addRow(4, new Label("Clinic Pairing Key (Auth Token):"), pairingRow);
+        form.addRow(5, new Label("SSH Gateway Host (Remote WAN):"), txtSshHost);
+        form.addRow(6, new Label("SSH Port:"), txtSshPort);
+        form.addRow(7, new Label("SSH Login User:"), txtSshUser);
+        form.addRow(8, new Label("SSH Private Key File:"), txtSshKey);
+        form.addRow(9, new Label("Reverse SSH Forward Port:"), txtReversePort);
+        form.addRow(10, new Label("Supervision:"), chkAutoSsh);
+        form.addRow(11, new Label("LAN Discovery:"), chkBeacon);
+
+        Runnable refreshStatusBanner = () -> {
+            org.openhomeo.core.net.DeploymentProfile p = dbManager.getDeploymentProfile();
+            org.openhomeo.core.net.ClinicNetworkServer srv = dbManager.getNetworkServer();
+            String lanIp = org.openhomeo.core.server.MobileCompanionServer.getLocalLanIp();
+            if (p.mode() == org.openhomeo.core.net.DeploymentProfile.DeploymentMode.SERVER) {
+                boolean active = srv != null && srv.isRunning();
+                int clients = active ? srv.getConnectedClientIps().size() : 0;
+                int rpcCalls = active ? srv.getTotalRpcCalls() : 0;
+                lblModeBanner.setText(
+                        (active ? "🟢 ACTIVE CLINIC DATABASE SERVER HOST" : "🟠 CONFIGURED SERVER (Stopped)") +
+                        "\nShare this address with Client terminals -> IP: " + lanIp + ":" + p.serverPort() +
+                        "  |  Pairing Key: " + p.pairingKey() +
+                        "  |  Clients Connected: " + clients + "  |  RPC Calls: " + rpcCalls
+                );
+                lblModeBanner.setStyle("-fx-background-color: #f0fdf4; -fx-text-fill: #166534; -fx-border-color: #86efac; -fx-border-radius: 6; -fx-background-radius: 6; -fx-font-weight: bold;");
+            } else if (p.mode() == org.openhomeo.core.net.DeploymentProfile.DeploymentMode.CLIENT) {
+                lblModeBanner.setText(
+                        "🌐 CLIENT TERMINAL MODE ACTIVE — Connected directly to Shared Server: " +
+                        p.serverHost() + ":" + p.serverPort() + " (" + p.clinicLabel() + ")\n" +
+                        "All patient records, visits, dispensary stock, and encrypted clinical photos read/write on the Clinic Server."
+                );
+                lblModeBanner.setStyle("-fx-background-color: #eff6ff; -fx-text-fill: #1d4ed8; -fx-border-color: #93c5fd; -fx-border-radius: 6; -fx-background-radius: 6; -fx-font-weight: bold;");
+            } else {
+                lblModeBanner.setText(
+                        "🖥️ STANDALONE WORKSTATION MODE — Using single-PC local clinic database (this machine's LAN IP: " + lanIp + ").\n" +
+                        "Switch to 'Clinic Server Host' on the clinic's main PC so all Doctors & Pharmacists share one unified database."
+                );
+                lblModeBanner.setStyle("-fx-background-color: #f8fafc; -fx-text-fill: #334155; -fx-border-color: #cbd5e1; -fx-border-radius: 6; -fx-background-radius: 6; -fx-font-weight: bold;");
+            }
+        };
+        refreshStatusBanner.run();
 
         TextArea txtLog = new TextArea();
         txtLog.setEditable(false);
-        txtLog.setPrefRowCount(4);
-        txtLog.setText("Ready to configure network connections or test remote sockets.");
+        txtLog.setPrefRowCount(5);
+        txtLog.setText("Ready. Choose STANDALONE, SERVER (Main Clinic PC), or CLIENT (Doctor/Pharmacist PC).");
 
-        HBox btnBox = new HBox(12);
+        HBox btnBox = new HBox(10);
         btnBox.setAlignment(Pos.CENTER_LEFT);
 
-        Button btnTest = new Button("🔍 Test Connection Socket");
-        btnTest.setOnAction(e -> {
-            try {
-                int port = Integer.parseInt(txtRemotePort.getText().trim());
-                RemoteDatabaseManager.ConnectionTestResult res = RemoteDatabaseManager.testRemoteSocket(txtRemoteHost.getText().trim(), port, 3000);
-                txtLog.setText(res.message() + (res.isSuccessful() ? "\nStatus: SUCCESS - Connection established." : "\nStatus: FAILED - Host unreachable."));
-            } catch (Exception ex) {
-                txtLog.setText("Test error: " + ex.getMessage());
-            }
+        Button btnScanLan = new Button("📡 Scan LAN for Clinic Server");
+        btnScanLan.getStyleClass().add(Styles.BUTTON_OUTLINED);
+        btnScanLan.setOnAction(e -> {
+            btnScanLan.setDisable(true);
+            txtLog.setText("Scanning local Wi-Fi / Ethernet subnet (UDP port 45824) for OpenHomeo Clinic Server...");
+            Thread t = new Thread(() -> {
+                Optional<org.openhomeo.core.net.NetworkDiscoveryService.DiscoveredClinicHost> found =
+                        org.openhomeo.core.net.NetworkDiscoveryService.discoverClinicHost(2500);
+                javafx.application.Platform.runLater(() -> {
+                    btnScanLan.setDisable(false);
+                    if (found.isPresent()) {
+                        var h = found.get();
+                        comboDeployment.setValue(org.openhomeo.core.net.DeploymentProfile.DeploymentMode.CLIENT);
+                        txtRemoteHost.setText(h.hostIp());
+                        txtRemotePort.setText(String.valueOf(h.port()));
+                        txtClinicLabel.setText(h.clinicName());
+                        txtLog.setText("Discovered Clinic Server '" + h.clinicName() + "' (" + h.hostName() + ") at " +
+                                h.hostIp() + ":" + h.port() + " in " + h.responseTimeMs() + " ms.\n" +
+                                "Enter the Server's Pairing Key and click 'Save & Apply Mode' to link this Client workstation.");
+                    } else {
+                        txtLog.setText("No Clinic Server beacon found on local LAN.\nVerify the Clinic Server workstation is running in SERVER mode on the same network.");
+                    }
+                });
+            }, "openhomeo-admin-lan-scan");
+            t.setDaemon(true);
+            t.start();
         });
 
-        Button btnGenDb = new Button("🚀 Generate DB in Remote");
+        Button btnTest = new Button("🔍 Test Server RPC");
+        btnTest.setOnAction(e -> {
+            int port;
+            try {
+                port = Integer.parseInt(txtRemotePort.getText().trim());
+            } catch (Exception ex) {
+                txtLog.setText("Invalid port: " + ex.getMessage());
+                return;
+            }
+            String host = txtRemoteHost.getText().trim();
+            String key = txtPairingKey.getText().trim();
+            btnTest.setDisable(true);
+            txtLog.setText("Probing authenticated OpenHomeo RPC endpoint at http://" + host + ":" + port + " ...");
+            Thread t = new Thread(() -> {
+                RemoteDatabaseManager.ConnectionTestResult res =
+                        RemoteDatabaseManager.testClinicRpcEndpoint(host, port, key, 3000);
+                javafx.application.Platform.runLater(() -> {
+                    btnTest.setDisable(false);
+                    txtLog.setText(res.message() + (res.isSuccessful()
+                            ? "\nStatus: SUCCESS — Shared Clinic Server verified."
+                            : "\nStatus: FAILED — Verify Server mode, firewall port " + port + ", and Pairing Key."));
+                });
+            }, "openhomeo-admin-rpc-test");
+            t.setDaemon(true);
+            t.start();
+        });
+
+        Button btnGenDb = new Button("🚀 Verify Active Clinic Schema");
         btnGenDb.getStyleClass().addAll(Styles.BUTTON_OUTLINED, Styles.ACCENT);
         btnGenDb.setOnAction(e -> {
-            String url = "jdbc:sqlite:" + txtRemoteDb.getText().trim();
-            RemoteDatabaseManager.ConnectionTestResult res = RemoteDatabaseManager.generateRemoteDbSchema(url, "admin", "");
-            txtLog.setText("Schema Generation:\n" + res.message());
-            showNotification("Remote database verified.");
+            btnGenDb.setDisable(true);
+            Thread t = new Thread(() -> {
+                RemoteDatabaseManager.ConnectionTestResult res = RemoteDatabaseManager.verifyActiveClinicSchema(dbManager);
+                javafx.application.Platform.runLater(() -> {
+                    btnGenDb.setDisable(false);
+                    txtLog.setText("Active Schema Verification:\n" + res.message());
+                    if (res.isSuccessful()) {
+                        showNotification("Shared clinic database schema verified.");
+                    } else {
+                        showError(res.message());
+                    }
+                });
+            }, "openhomeo-admin-schema-verify");
+            t.setDaemon(true);
+            t.start();
         });
 
-        Button btnAutoSshCmd = new Button("📋 Copy autossh Command");
+        Button btnAutoSshCmd = new Button("📋 Generate SSH Commands");
         btnAutoSshCmd.setOnAction(e -> {
             try {
                 NetworkConfig cfg = new NetworkConfig(
-                        comboMode.getValue(), txtRemoteHost.getText().trim(),
-                        Integer.parseInt(txtRemotePort.getText().trim()), txtRemoteDb.getText().trim(),
+                        NetworkConfig.ConnectionMode.REMOTE_SSH_TUNNEL, txtRemoteHost.getText().trim(),
+                        Integer.parseInt(txtRemotePort.getText().trim()), "user_clinic.db",
                         "admin", "", txtSshHost.getText().trim(),
                         Integer.parseInt(txtSshPort.getText().trim()), txtSshUser.getText().trim(),
                         txtSshKey.getText().trim(), Integer.parseInt(txtReversePort.getText().trim()),
                         chkAutoSsh.isSelected(), chkBeacon.isSelected(), "Active", Instant.now()
                 );
                 String cmd = RemoteDatabaseManager.buildAutoSshCommand(cfg);
-                txtLog.setText("Generated Persistent Reverse SSH Command:\n" + cmd);
-                showNotification("autossh command generated!");
+                txtLog.setText("Persistent Reverse SSH & Client Tunnel Commands:\n" + cmd);
+                showNotification("SSH tunnel commands generated.");
             } catch (Exception ex) {
                 txtLog.setText("Error generating command: " + ex.getMessage());
             }
         });
 
-        Button btnSave = new Button("💾 Save Settings & Launch");
+        Button btnSave = new Button("💾 Save & Apply Mode");
         btnSave.getStyleClass().addAll(Styles.BUTTON_OUTLINED, Styles.SUCCESS);
         btnSave.setOnAction(e -> {
             try {
+                var selectedRole = comboDeployment.getValue() != null
+                        ? comboDeployment.getValue()
+                        : org.openhomeo.core.net.DeploymentProfile.DeploymentMode.STANDALONE;
+                int port = Integer.parseInt(txtRemotePort.getText().trim());
+                if (port < 1024 || port > 65535) {
+                    port = org.openhomeo.core.net.DeploymentProfile.DEFAULT_RPC_PORT;
+                }
+                String host = selectedRole == org.openhomeo.core.net.DeploymentProfile.DeploymentMode.SERVER
+                        ? org.openhomeo.core.server.MobileCompanionServer.getLocalLanIp()
+                        : txtRemoteHost.getText().trim();
+                if (host.isBlank()) host = "127.0.0.1";
+                String pairingKey = txtPairingKey.getText().trim();
+                if (pairingKey.isBlank()) {
+                    pairingKey = org.openhomeo.core.net.DeploymentProfile.generatePairingKey();
+                    txtPairingKey.setText(pairingKey);
+                }
+                String clinicLabel = txtClinicLabel.getText().trim().isBlank()
+                        ? "OpenHomeo Clinic Server" : txtClinicLabel.getText().trim();
+
+                org.openhomeo.core.net.DeploymentProfile updatedProfile =
+                        new org.openhomeo.core.net.DeploymentProfile(selectedRole, host, port, pairingKey, clinicLabel);
+                org.openhomeo.core.image.ImageVaultService localVault =
+                        new org.openhomeo.core.image.ImageVaultService(dbManager.getBaseDataDir() + File.separator + "vault");
+
+                dbManager.reconfigureDeployment(updatedProfile, localVault);
+                if (!dbManager.isClientMode()) {
+                    dbManager.initializeClinicSchema();
+                }
+
+                NetworkConfig.ConnectionMode legacyMode = switch (selectedRole) {
+                    case SERVER -> NetworkConfig.ConnectionMode.LAN_DEDICATED_HOST;
+                    case CLIENT -> NetworkConfig.ConnectionMode.LAN_CLIENT_AUTOCONNECT;
+                    case STANDALONE -> NetworkConfig.ConnectionMode.LOCAL_EMBEDDED;
+                };
                 NetworkConfig cfg = new NetworkConfig(
-                        comboMode.getValue(), txtRemoteHost.getText().trim(),
-                        Integer.parseInt(txtRemotePort.getText().trim()), txtRemoteDb.getText().trim(),
+                        legacyMode, host, port, "user_clinic.db",
                         "admin", "", txtSshHost.getText().trim(),
                         Integer.parseInt(txtSshPort.getText().trim()), txtSshUser.getText().trim(),
                         txtSshKey.getText().trim(), Integer.parseInt(txtReversePort.getText().trim()),
-                        chkAutoSsh.isSelected(), chkBeacon.isSelected(), "Active", Instant.now()
+                        chkAutoSsh.isSelected(), selectedRole == org.openhomeo.core.net.DeploymentProfile.DeploymentMode.SERVER,
+                        selectedRole.name(), Instant.now()
                 );
-                clinicDao.saveNetworkConfig(cfg);
-                if (chkBeacon.isSelected()) {
-                    discoveryService.startBeaconServer("Hahnemannian Classical Clinic", cfg.remotePort());
-                } else {
-                    discoveryService.stopBeaconServer();
+                try {
+                    clinicDao.saveNetworkConfig(cfg);
+                } catch (Exception netSaveEx) {
+                    log.warn("Note persisting network config row: {}", netSaveEx.getMessage());
                 }
-                showNotification("Network configuration saved and active!");
-                txtLog.setText("Settings saved successfully. LAN discovery beacon: " + (chkBeacon.isSelected() ? "ACTIVE" : "STOPPED"));
+
+                refreshStatusBanner.run();
+                if (onUpdateAppliedCallback != null) {
+                    onUpdateAppliedCallback.run();
+                }
+                showNotification("Deployment mode updated: " + selectedRole.name());
+                txtLog.setText("Applied deployment profile cleanly: " + selectedRole + " (" + host + ":" + port + ")");
             } catch (Exception ex) {
-                showError("Failed to save settings: " + ex.getMessage());
+                showError("Failed to apply network mode: " + ex.getMessage());
             }
         });
 
-        btnBox.getChildren().addAll(btnTest, btnGenDb, btnAutoSshCmd, btnSave);
+        btnBox.getChildren().addAll(btnScanLan, btnTest, btnGenDb, btnAutoSshCmd, btnSave);
 
-        // Load existing network config
         try {
             NetworkConfig existing = clinicDao.getNetworkConfig();
             if (existing != null) {
-                comboMode.setValue(existing.connectionMode());
-                txtRemoteHost.setText(existing.remoteHost());
-                txtRemotePort.setText(String.valueOf(existing.remotePort()));
-                txtRemoteDb.setText(existing.remoteDbName());
                 txtSshHost.setText(existing.sshHost());
                 txtSshPort.setText(String.valueOf(existing.sshPort()));
                 txtSshUser.setText(existing.sshUser());
                 txtSshKey.setText(existing.sshKeyPath());
                 txtReversePort.setText(String.valueOf(existing.reverseSshPort()));
                 chkAutoSsh.setSelected(existing.autoSshEnabled());
-                chkBeacon.setSelected(existing.lanDiscoveryActive());
             }
         } catch (SQLException ignored) {}
 
-        root.getChildren().addAll(secTitle, expl, form, btnBox, new Label("Network Diagnostic Output:"), txtLog);
+        root.getChildren().addAll(secTitle, expl, lblModeBanner, form, btnBox, new Label("Network Diagnostic Output:"), txtLog);
         scroll.setContent(root);
         return scroll;
     }
@@ -1490,7 +1622,12 @@ public class AdminManagementView extends BorderPane {
         safetyBadge.setWrapText(true);
         safetyBadge.setStyle("-fx-background-color: #f0fdf4; -fx-text-fill: #166534; -fx-padding: 10 14; -fx-border-color: #86efac; -fx-border-radius: 6; -fx-background-radius: 6; -fx-font-weight: bold; -fx-font-size: 12px;");
 
-        OtaUpdateService otaService = new OtaUpdateService("master_repertory.db", "user_clinic.db", clinicDao);
+        org.openhomeo.core.db.DatabaseManager otaDm = clinicDao != null ? clinicDao.getDatabaseManager() : null;
+        OtaUpdateService otaService = new OtaUpdateService(
+                otaDm != null ? otaDm.getMasterDbPath() : "master_repertory.db",
+                otaDm != null ? otaDm.getClinicDbPath() : "user_clinic.db",
+                clinicDao
+        );
         File installDir = OtaUpdateService.detectInstallationDirectory();
 
         // 3 Status Cards in a Row
@@ -1506,8 +1643,8 @@ public class AdminManagementView extends BorderPane {
 
         StatusCardView cardRelease = new StatusCardView(
                 "🌐 Official Release Channel",
-                OtaUpdateService.LATEST_AVAILABLE_VERSION,
-                "Release: 2026.11 • Master Catalog: 1,221 Verified Remedies",
+                "Checking...",
+                "Verified GitHub Release Manifest (SemVer + SHA-256)",
                 "#059669"
         );
 
@@ -1665,6 +1802,10 @@ public class AdminManagementView extends BorderPane {
                 progressStatusLabel.setText("Check complete");
 
                 OtaUpdateService.UpdateInfo info = checkTask.getValue();
+                cardRelease.update(
+                        info.latestVersion(),
+                        "Release: " + info.releaseDate() + " • Master Catalog: " + info.totalRemedies() + " Remedies"
+                );
                 String localCheckTime = ZonedDateTime.now(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z"));
                 otaLog.appendText("\n\n[OTA CHECK] " + localCheckTime + "\n" +
                         "Latest Version: " + info.latestVersion() + "\n" +
@@ -1747,23 +1888,29 @@ public class AdminManagementView extends BorderPane {
 
                     Alert alert = new Alert(Alert.AlertType.INFORMATION);
                     alert.setTitle("System Update Applied Successfully");
-                    alert.setHeaderText("🎉 OpenHomeo " + res.version() + " Installed");
+                    alert.setHeaderText("🎉 OpenHomeo " + res.version() + " Staged & Ready");
                     alert.setContentText(
-                            "The automated live update has been applied smoothly.\n\n" +
-                            "• Patch Release / Originated Date: 2026-11-25\n" +
-                            "• Applied Date & Local Timestamp: " + appliedLocalTime + "\n\n" +
-                            "• Activated Changes & Commented Details:\n" +
-                            "  1. 🏛️ OpenSynthesis Repertory Scale (millions of additions, degrees 1-4, author citations k1, b1, bog1, ccrh24, cross-references)\n" +
-                            "  2. 📚 1,500-Book Materia Medica Digital Library (SQLite FTS5 full-text search with BM25 ranking across classical volumes)\n" +
-                            "  3. 🌿 Families Tool & Taxonomy Classifier (APG IV, Jan Scholten Series/Stages, Animal phyla, Miasms distribution)\n" +
-                            "  4. ⚖️ WinChip-Alike Patient Management (longitudinal follow-up comparison, Kent's 12 Observations & Hering's Law)\n" +
-                            "  5. 🧠 Upgraded Socratic Clinical Logic AI (Strictly NO LLM, doctor interrogation & permanent Experience Vault)\n" +
-                            "  6. 📦 Universal Standalone Packages (Windows 10/11 & macOS Apple Silicon/Intel)\n\n" +
-                            "• 🛡️ 100% Non-Destructive Invariant: All patient records, consultations, and prescriptions in user_clinic.db are 100% intact.\n" +
+                            "The automated live update has been verified & staged smoothly.\n\n" +
+                            "• Applied Date & Local Timestamp: " + appliedLocalTime + "\n" +
+                            "• Non-Destructive Invariant: Patient cases and prescriptions in user_clinic.db remain 100% intact.\n" +
                             "• Verified SHA-256 Hash: " + res.hash() + "\n\n" +
-                            "A permanent audit record with your local timestamp (" + appliedLocalTime + ") has been recorded in your client database."
+                            (res.restartRequired()
+                                    ? "Click 'Restart & Complete Upgrade' to cleanly swap updated binaries and relaunch OpenHomeo."
+                                    : "A permanent audit record with your local timestamp (" + appliedLocalTime + ") has been recorded.")
                     );
-                    alert.showAndWait();
+                    if (res.restartRequired() && res.updaterScriptPath() != null) {
+                        ButtonType btnRestartNow = new ButtonType("🔄 Restart & Complete Upgrade", ButtonBar.ButtonData.OK_DONE);
+                        ButtonType btnLater = new ButtonType("Later", ButtonBar.ButtonData.CANCEL_CLOSE);
+                        alert.getButtonTypes().setAll(btnRestartNow, btnLater);
+                        alert.showAndWait().ifPresent(bt -> {
+                            if (bt == btnRestartNow && OtaUpdateService.launchStagedUpdater(res.updaterScriptPath())) {
+                                javafx.application.Platform.exit();
+                                System.exit(0);
+                            }
+                        });
+                    } else {
+                        alert.showAndWait();
+                    }
                 } else {
                     showError(res.message());
                 }
@@ -1791,7 +1938,7 @@ public class AdminManagementView extends BorderPane {
             if (file != null) {
                 String currentUser = securityService != null && securityService.getCurrentSession() != null
                         ? securityService.getCurrentSession().user().username() : "admin";
-                OtaUpdateService.ApplyResult res = otaService.applyUpdateFromOfflinePackage(file, "1.1.0-OfflinePatch", currentUser);
+                OtaUpdateService.ApplyResult res = otaService.applyUpdateFromOfflinePackage(file, "1.3.0-OfflinePatch", currentUser);
                 otaLog.appendText("\n[OFFLINE PACKAGE RESULT]\nStatus: " + (res.success() ? "SUCCESS" : "FAILED") + "\nMessage: " + res.message() + "\n");
                 if (res.success()) {
                     showNotification("Offline package applied: " + res.message());

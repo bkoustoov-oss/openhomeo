@@ -1,132 +1,129 @@
-#!/usr/bin/env bash
+#!/usr/bin/env sh
 # ==============================================================================
-# OpenHomeo Workstation - macOS & Linux One-Line Automated Installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/bkoustoov-oss/openhomeo/master/install.sh | bash
+# OpenHomeo Workstation - Universal macOS & Distro-Independent Linux Installer
+# Usage: curl -fsSL https://raw.githubusercontent.com/bkoustoov-oss/openhomeo/master/install.sh | sh
 # ==============================================================================
-
 set -e
 
-# Terminal Colors
-CYAN='\033[0;36m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-NC='\033[0m'
+REPO_BASE="https://github.com/bkoustoov-oss/openhomeo"
+MANIFEST_URL="https://raw.githubusercontent.com/bkoustoov-oss/openhomeo/master/ota_manifest.json"
+VERSION_TAG="v1.3.0"
+OS_NAME=$(uname -s)
 
-echo -e "${CYAN}"
-cat << "EOF"
-  ██████╗ ██████╗ ███████╗███╗   ██╗██╗  ██╗ ██████╗ ███╗   ███╗███████╗ ██████╗ 
- ██╔═══██╗██╔══██╗██╔════╝████╗  ██║██║  ██║██╔═══██╗████╗ ████║██╔════╝██╔═══██╗
- ██║   ██║██████╔╝█████╗  ██╔██╗ ██║███████║██║   ██║██╔████╔██║█████╗  ██║   ██║
- ██║   ██║██╔═══╝ ██╔══╝  ██║╚██╗██║██╔══██║██║   ██║██║╚██╔╝██║██╔══╝  ██║   ██║
- ╚██████╔╝██║     ███████╗██║ ╚████║██║  ██║╚██████╔╝██║ ╚═╝ ██║███████╗╚██████╔╝
-  ╚═════╝ ╚═╝     ╚══════╝╚═╝  ╚═══╝╚═╝  ╚═╝ ╚═════╝ ╚═╝     ╚═╝╚══════╝ ╚═════╝ 
-        Classical Homeopathy Workstation • 100% Free Open-Source Software
-EOF
-echo -e "${NC}"
+echo "================================================================================"
+echo "  OpenHomeo Classical Workstation - Automated macOS / Linux Installer           "
+echo "================================================================================"
 
-echo -e "${GREEN}[*] Starting automated deployment of OpenHomeo Workstation...${NC}"
-
-OS="$(uname -s)"
-ARCH="$(uname -m)"
-echo -e "[*] Detected Operating System: ${OS} (${ARCH})"
-
-# 1. Dependency Resolution
-if [ "$OS" = "Darwin" ]; then
-    echo -e "[*] macOS detected. Checking Homebrew..."
-    if ! command -v brew &>/dev/null; then
-        echo -e "${YELLOW}[!] Homebrew not found. Please install Homebrew from https://brew.sh/${NC}"
+# Helper to download via curl or wget cleanly
+download_file() {
+    url="$1"
+    dest="$2"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fL --progress-bar "$url" -o "$dest"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -O "$dest" "$url"
     else
-        if ! command -v java &>/dev/null || [ "$(java -version 2>&1 | awk -F '"' '/version/ {print $2}' | cut -d'.' -f1)" -lt 21 ]; then
-            echo -e "${CYAN}[*] Installing OpenJDK 21 via Homebrew...${NC}"
-            brew install openjdk@21
-            sudo ln -sfn /opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk /Library/Java/JavaVirtualMachines/openjdk-21.jdk || true
+        echo "[!] Error: neither curl nor wget is installed." >&2
+        exit 1
+    fi
+}
+
+# Detect latest tag from manifest when possible
+if command -v curl >/dev/null 2>&1; then
+    MANIFEST_JSON=$(curl -fsSL "$MANIFEST_URL" 2>/dev/null || true)
+    PARSED_SEMVER=$(printf '%s' "$MANIFEST_JSON" | tr ',' '\n' | awk -F'"' '/"semver"/ {print $4; exit}')
+    if [ -n "$PARSED_SEMVER" ]; then
+        VERSION_TAG="v$PARSED_SEMVER"
+    fi
+fi
+
+if [ "$OS_NAME" = "Darwin" ]; then
+    ARCH=$(uname -m)
+    DMG_URL="$REPO_BASE/releases/download/$VERSION_TAG/OpenHomeo-$VERSION_TAG-macOS-$ARCH.dmg"
+    TAR_URL="$REPO_BASE/releases/download/$VERSION_TAG/OpenHomeo-$VERSION_TAG-macOS.tar.gz"
+    TMP_DMG="/tmp/OpenHomeo-$VERSION_TAG.dmg"
+
+    echo "[*] Detected macOS ($ARCH). Checking native .dmg release..."
+    if download_file "$DMG_URL" "$TMP_DMG" 2>/dev/null; then
+        echo "[*] Mounting $TMP_DMG and installing OpenHomeo.app into /Applications..."
+        MNT_DIR=$(hdiutil attach "$TMP_DMG" -nobrowse | awk '/\/Volumes\// {for(i=3;i<=NF;i++) printf $i (i<NF?" ":""); exit}')
+        if [ -d "$MNT_DIR/OpenHomeo.app" ]; then
+            rm -rf /Applications/OpenHomeo.app
+            cp -R "$MNT_DIR/OpenHomeo.app" /Applications/OpenHomeo.app
+            hdiutil detach "$MNT_DIR" -quiet || true
+            rm -f "$TMP_DMG"
+            echo "[+] OpenHomeo.app installed to /Applications/OpenHomeo.app!"
+            open /Applications/OpenHomeo.app
+            exit 0
         fi
-        command -v mvn &>/dev/null || brew install maven
-        command -v cargo &>/dev/null || brew install rust
+        hdiutil detach "$MNT_DIR" -quiet || true
+        rm -f "$TMP_DMG"
     fi
-elif [ "$OS" = "Linux" ]; then
-    echo -e "[*] Linux detected. Checking package manager..."
-    if command -v apt-get &>/dev/null; then
-        sudo apt-get update -y
-        sudo apt-get install -y openjdk-21-jdk maven cargo git build-essential
-    elif command -v dnf &>/dev/null; then
-        sudo dnf install -y java-21-openjdk-devel maven cargo git gcc
-    elif command -v pacman &>/dev/null; then
-        sudo pacman -Sy --noconfirm jdk21-openjdk maven rust git base-devel
-    fi
+
+    INSTALL_DIR="$HOME/.local/share/openhomeo"
+    TMP_TAR="/tmp/OpenHomeo-$VERSION_TAG-macOS.tar.gz"
+    echo "[*] Installing universal macOS portable archive to $INSTALL_DIR..."
+    mkdir -p "$INSTALL_DIR"
+    download_file "$TAR_URL" "$TMP_TAR"
+    tar -xzf "$TMP_TAR" -C "$INSTALL_DIR" --strip-components=1
+    rm -f "$TMP_TAR"
+    chmod +x "$INSTALL_DIR"/*.sh 2>/dev/null || true
+    exec "$INSTALL_DIR/openhomeo.sh"
 fi
 
-# 2. Target Directory
-INSTALL_DIR="$HOME/.local/share/openhomeo"
-mkdir -p "$INSTALL_DIR"
-echo -e "[*] Installation path: ${INSTALL_DIR}"
-
-# 3. Check for pre-compiled release package
-DOWNLOADED_RELEASE=false
-MAC_RELEASE_URL="https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.1.0/OpenHomeo-v1.1.0-macOS.tar.gz"
-
-if [ "$OS" = "Darwin" ]; then
-    echo -e "${CYAN}[*] Checking for OpenHomeo v1.1.0 macOS release package...${NC}"
-    if curl -fsSL --connect-timeout 10 "$MAC_RELEASE_URL" -o /tmp/openhomeo_mac.tar.gz 2>/dev/null; then
-        echo -e "${GREEN}[*] Extracting pre-compiled macOS package into ${INSTALL_DIR}...${NC}"
-        tar -xzf /tmp/openhomeo_mac.tar.gz -C "$INSTALL_DIR" --strip-components=1
-        DOWNLOADED_RELEASE=true
-        echo -e "${GREEN}[+] macOS package extracted successfully.${NC}"
-    fi
-fi
-
-if [ "$DOWNLOADED_RELEASE" = false ]; then
-    # Clone / Update Repository
-    if [ -d "$INSTALL_DIR/.git" ]; then
-        echo -e "${CYAN}[*] Updating existing OpenHomeo repository...${NC}"
-        git -C "$INSTALL_DIR" pull
-    else
-        echo -e "${CYAN}[*] Cloning OpenHomeo from GitHub...${NC}"
-        git clone https://github.com/bkoustoov-oss/openhomeo.git "$INSTALL_DIR"
-    fi
-
-    # 4. Build Native Core and Java Workstation
-    cd "$INSTALL_DIR"
-    if [ -d "$INSTALL_DIR/native-core" ] && command -v cargo &>/dev/null; then
-        echo -e "${CYAN}[*] Compiling native Rust SIMD core...${NC}"
-        cd "$INSTALL_DIR/native-core"
-        cargo build --release || true
-    fi
-
-    echo -e "${CYAN}[*] Compiling OpenHomeo workstation with Maven...${NC}"
-    cd "$INSTALL_DIR"
-    mvn clean package -DskipTests
-fi
-
-# 5. Create CLI Launcher
+# Distro-independent Linux installation
+INSTALL_DIR="${OPENHOMEO_HOME:-$HOME/.local/share/openhomeo}"
 BIN_DIR="$HOME/.local/bin"
-mkdir -p "$BIN_DIR"
-LAUNCHER="$BIN_DIR/openhomeo"
+DESKTOP_DIR="$HOME/.local/share/applications"
+TAR_URL="$REPO_BASE/releases/download/$VERSION_TAG/OpenHomeo-$VERSION_TAG-Linux-x86_64.tar.gz"
+TMP_TAR="/tmp/OpenHomeo-$VERSION_TAG-Linux.tar.gz"
 
-cat << 'EOF' > "$LAUNCHER"
-#!/usr/bin/env bash
-INSTALL_DIR="$HOME/.local/share/openhomeo"
-cd "$INSTALL_DIR"
-if [ -f "$INSTALL_DIR/run-openhomeo.sh" ]; then
-    chmod +x "$INSTALL_DIR/run-openhomeo.sh"
-    exec "$INSTALL_DIR/run-openhomeo.sh"
-else
-    exec mvn javafx:run -pl openhomeo-gui
-fi
+echo "[1/3] Downloading OpenHomeo $VERSION_TAG generic Linux archive..."
+download_file "$TAR_URL" "$TMP_TAR"
+
+echo "[2/3] Extracting into $INSTALL_DIR (user clinic database ~/.openhomeo preserved)..."
+mkdir -p "$INSTALL_DIR" "$BIN_DIR" "$DESKTOP_DIR"
+tar -xzf "$TMP_TAR" -C "$INSTALL_DIR" --strip-components=1
+rm -f "$TMP_TAR"
+chmod +x "$INSTALL_DIR"/*.sh 2>/dev/null || true
+
+cat > "$BIN_DIR/openhomeo" <<EOF
+#!/usr/bin/env sh
+exec "$INSTALL_DIR/openhomeo.sh" "\$@"
 EOF
-chmod +x "$LAUNCHER"
+chmod +x "$BIN_DIR/openhomeo"
 
-echo -e "${GREEN}
-================================================================================
-[+] OpenHomeo Workstation successfully installed!
-================================================================================
-  • Binary Command:   $LAUNCHER (Make sure ~/.local/bin is in your PATH)
-  • Bedside LAN App:  http://localhost:8090 (PIN: doctor123 / admin123)
-  • Clinic Database:  ~/.openhomeo/user_clinic.db (AES-256 Encrypted)
+cat > "$DESKTOP_DIR/openhomeo.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=OpenHomeo Workstation
+Comment=Classical Homeopathy Repertory & Clinic Workstation
+Exec="$INSTALL_DIR/openhomeo.sh"
+Icon=$INSTALL_DIR/openhomeo.png
+Terminal=false
+Categories=MedicalSoftware;Office;Science;
+EOF
 
-To run OpenHomeo now:
-  openhomeo
-  OR
-  cd '$INSTALL_DIR' && mvn javafx:run -pl openhomeo-gui
-${NC}"
+echo "[3/3] Creating uninstaller: $INSTALL_DIR/uninstall-linux.sh ..."
+if [ ! -f "$INSTALL_DIR/uninstall-linux.sh" ]; then
+cat > "$INSTALL_DIR/uninstall-linux.sh" <<'EOF'
+#!/usr/bin/env sh
+set -e
+APP_DIR=$(cd "$(dirname "$0")" && pwd)
+rm -f "$HOME/.local/bin/openhomeo" "$HOME/.local/share/applications/openhomeo.desktop"
+printf "Keep your clinic database (~/.openhomeo)? [Y/n]: "
+read ans || ans="y"
+case "$ans" in
+  n|N) rm -rf "$HOME/.openhomeo" ;;
+esac
+rm -rf "$APP_DIR"
+echo "OpenHomeo Workstation uninstalled."
+EOF
+chmod +x "$INSTALL_DIR/uninstall-linux.sh"
+fi
+
+echo "================================================================================"
+echo "  SUCCESS! OpenHomeo $VERSION_TAG installed silently (no terminal required)!"
+echo "  Run 'openhomeo' or launch 'OpenHomeo Workstation' from your app menu."
+echo "================================================================================"
+nohup "$INSTALL_DIR/openhomeo.sh" >/dev/null 2>&1 &

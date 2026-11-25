@@ -1,15 +1,20 @@
 {
-  "version": "1.2.0",
-  "versionTitle": "1.2.0-Diamond+ (Synthesis, 1,500-Book MM Library, Families & WinChip Upgrade)",
+  "version": "1.3.0",
+  "semver": "1.3.0",
+  "versionTitle": "1.3.0-Diamond+ (1,500-Book Digital Library, Client-Server DB, Silent Launchers & Native MSI/DMG/PKG)",
   "releaseDate": "2026-11-25",
   "totalRemedies": 1350,
   "updateAvailable": true,
-  "changelog": "• 🏛️ OpenSynthesis Repertory Scale: Scalable architecture with millions of additions, author citations (k1, b1, bog1, a1, c1, boer1, h1, her1, ccrh24), and cross-reference synonym networks.\n• 📚 1,500-Book Materia Medica Digital Library: High-performance SQLite FTS5 BM25 search across classical treatises (Hahnemann, Kent, Boericke, Clarke, Nash, Hering, Boger, Allen, CCRH) accessible for Doctors and Admins.\n• 🌿 Families Tool: Taxonomical analysis across Plant Kingdom (APG IV), Mineral Kingdom (Jan Scholten Periodic Table Series/Stages), Animal Kingdom, and Miasms with distribution charts and matrix filtering.\n• ⚖️ WinChip-Alike Patient Management Module: Longitudinal consultation follow-up comparison, automated Kent's 12 Observations evaluator, and Hering's Law directional cure tracker.\n• 🧠 Upgraded Socratic Clinical Logic AI (Strictly NO LLM): Active Socratic questioning challenging thermal, miasmatic, and posology discrepancies.\n• ⚡ Doctor Supersede & Clinical Experience Capture: Structured preservation of the doctor's experiential clinical wisdom and verified keynotes into a permanent Experience Vault.\n• 🛡️ 100% Non-Destructive Update Guarantee: Patient clinic records (user_clinic.db) remain strictly preserved and untouched.",
+  "changelog": "• 📚 Complete 1,500-Book Digital Materia Medica Library: All 1,500 classical, pharmacopoeial, and indigenous CCRH volumes populated with browsable left-pane bookshelf, instant click-to-read sections, and SQLite FTS5 BM25 search.\n• 🌐 True Client-Server Workstation Separation: Dedicated Server Host (authenticated HTTP/JSON SQLite WAL RPC + Image Vault on port 45825 + LAN UDP Beacon on 45824) and true Client Terminal mode without creating isolated local user_clinic.db files.\n• 🔇 Zero-Terminal Desktop Launch: Native self-contained GUI launchers (Windows OpenHomeo.exe / hidden VBS javaw.exe, macOS OpenHomeo.app, Linux Desktop entry Terminal=false) with zero console windows opening on startup.\n• 🔧 Hardened Windows & Unix Installers + Uninstaller: Fixed PowerShell Java 21 LTS detection on stderr, added native .msi / .dmg / .pkg / distro-independent Linux .tar.gz packaging, and bundled clean Uninstallers preserving patient data.\n• 🛡️ Fail-Safe Atomic OTA Engine: SemVer detection from runtime metadata, SHA-256 verification before payload swap, rollback snapshots, and detached PID-waiting updater.",
   "downloadUrls": {
-    "windows": "https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.2.0/OpenHomeo-v1.2.0-Windows.zip",
-    "macOS": "https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.2.0/OpenHomeo-v1.2.0-macOS.tar.gz",
-    "macOSZip": "https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.2.0/OpenHomeo-v1.2.0-macOS.zip"
+    "windows": "https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.3.0/OpenHomeo-v1.3.0-Windows.zip",
+    "windowsMsi": "https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.3.0/OpenHomeo-v1.3.0-Windows.msi",
+    "macOS": "https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.3.0/OpenHomeo-v1.3.0-macOS.tar.gz",
+    "macOSZip": "https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.3.0/OpenHomeo-v1.3.0-macOS.tar.gz",
+    "macOSDmg": "https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.3.0/OpenHomeo-v1.3.0-macOS-arm64.dmg",
+    "macOSPkg": "https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.3.0/OpenHomeo-v1.3.0-macOS-arm64.pkg",
+    "linuxTarGz": "https://github.com/bkoustoov-oss/openhomeo/releases/download/v1.3.0/OpenHomeo-v1.3.0-Linux-x86_64.tar.gz"
   },
   "repositoryUrl": "https://github.com/bkoustoov-oss/openhomeo",
-  "releasesUrl": "https://github.com/bkoustoov-oss/openhomeo/releases/tag/v1.2.0"
+  "releasesUrl": "https://github.com/bkoustoov-oss/openhomeo/releases/tag/v1.3.0"
 }
