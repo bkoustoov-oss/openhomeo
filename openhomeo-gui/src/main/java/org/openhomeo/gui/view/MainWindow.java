@@ -131,7 +131,7 @@ public class MainWindow {
         Tab tabRep = new Tab("Repertory & Analysis Matrix", repPane);
 
         // Tab 2: Case-Taking & Prescriptions
-        caseTakingView = new CaseTakingView(clinicDao, masterDao, clipboard, imageVault);
+        caseTakingView = new CaseTakingView(clinicDao, masterDao, clipboard, imageVault, securityService);
         tabCase = new Tab("Clinical Case-Taking (L-S-M-C)", caseTakingView);
 
         // Tab 3: Comprehensive Patient Records & 360° Dossier
@@ -474,36 +474,7 @@ public class MainWindow {
                     if (res.success()) {
                         dialog.close();
                         checkOtaUpdatesAsync();
-
-                        Alert successAlert = new Alert(Alert.AlertType.INFORMATION);
-                        successAlert.setTitle("System Update Applied Successfully");
-                        successAlert.setHeaderText("🎉 OpenHomeo " + res.version() + " Installed");
-
-                        String appliedLocalTime = OtaUpdateService.formatLocalTimestamp(Instant.now());
-                        successAlert.setContentText(
-                                "The automated live update has been staged & verified cleanly.\n\n" +
-                                "• Patch Release / Originated Date: " + info.releaseDate() + "\n" +
-                                "• Applied Date & Local Timestamp: " + appliedLocalTime + "\n\n" +
-                                "• Activated Changes & Commented Enhancements:\n" + info.changelog() + "\n\n" +
-                                "• 🛡️ Non-Destructive Invariant Confirmed: All patient cases and prescriptions in user_clinic.db are 100% safe and intact.\n" +
-                                "• Verified SHA-256 Checksum: " + res.hash() + "\n\n" +
-                                (res.restartRequired()
-                                        ? "Click OK to automatically swap the updated application binaries cleanly and relaunch OpenHomeo."
-                                        : "A permanent client audit entry with your local workstation timestamp (" + appliedLocalTime + ") has been recorded.")
-                        );
-                        if (res.restartRequired() && res.updaterScriptPath() != null) {
-                            ButtonType btnRestartNow = new ButtonType("🔄 Restart & Complete Upgrade", ButtonBar.ButtonData.OK_DONE);
-                            ButtonType btnLater = new ButtonType("Later", ButtonBar.ButtonData.CANCEL_CLOSE);
-                            successAlert.getButtonTypes().setAll(btnRestartNow, btnLater);
-                            successAlert.showAndWait().ifPresent(bt -> {
-                                if (bt == btnRestartNow && OtaUpdateService.launchStagedUpdater(res.updaterScriptPath())) {
-                                    Platform.exit();
-                                    System.exit(0);
-                                }
-                            });
-                        } else {
-                            successAlert.showAndWait();
-                        }
+                        Platform.runLater(() -> showOtaCompletionDialog(info, res));
                     } else {
                         btnApply.setDisable(false);
                         pStatus.setText("Update failed: " + res.message());
@@ -527,6 +498,58 @@ public class MainWindow {
         dialog.getDialogPane().setContent(box);
         dialog.getDialogPane().getButtonTypes().add(ButtonType.CLOSE);
         dialog.showAndWait();
+    }
+
+    private void showOtaCompletionDialog(OtaUpdateService.UpdateInfo info, OtaUpdateService.ApplyResult res) {
+        Dialog<ButtonType> doneDlg = new Dialog<>();
+        doneDlg.setTitle("System Update Applied Successfully");
+        doneDlg.setHeaderText("🎉 OpenHomeo " + res.version() + " Verified & Staged");
+
+        VBox content = new VBox(10);
+        content.setPadding(new Insets(12));
+        content.setPrefWidth(640);
+
+        String appliedLocalTime = OtaUpdateService.formatLocalTimestamp(Instant.now());
+        Label metaLbl = new Label(
+                "Originated Date: " + (info != null ? info.releaseDate() : "2026-11-25") +
+                "  |  Applied Locally: " + appliedLocalTime +
+                "\nVerified SHA-256: " + res.hash()
+        );
+        metaLbl.setWrapText(true);
+        metaLbl.setStyle("-fx-background-color: #f0fdf4; -fx-text-fill: #166534; -fx-padding: 8 12; -fx-border-color: #86efac; -fx-border-radius: 6; -fx-background-radius: 6; -fx-font-weight: bold; -fx-font-size: 11px;");
+
+        String bodyText = (info != null && info.changelog() != null && !info.changelog().isBlank())
+                ? info.changelog() + "\n\n--- Execution Log ---\n" + res.executionLog()
+                : res.executionLog();
+        TextArea detailsArea = new TextArea(bodyText);
+        detailsArea.setEditable(false);
+        detailsArea.setWrapText(true);
+        detailsArea.setPrefRowCount(11);
+        detailsArea.setPrefHeight(240);
+
+        Label footerNote = new Label(res.restartRequired()
+                ? "🛡️ Your clinic records in user_clinic.db are 100% intact. Click 'Restart & Complete Upgrade' to cleanly swap updated binaries and relaunch."
+                : "🛡️ Your clinic records in user_clinic.db are 100% intact and audit trail recorded.");
+        footerNote.setWrapText(true);
+        footerNote.setStyle("-fx-font-weight: bold; -fx-text-fill: #1e293b;");
+
+        content.getChildren().addAll(metaLbl, detailsArea, footerNote);
+        doneDlg.getDialogPane().setContent(content);
+
+        if (res.restartRequired() && res.updaterScriptPath() != null) {
+            ButtonType btnRestartNow = new ButtonType("🔄 Restart & Complete Upgrade", ButtonBar.ButtonData.OK_DONE);
+            ButtonType btnLater = new ButtonType("Later", ButtonBar.ButtonData.CANCEL_CLOSE);
+            doneDlg.getDialogPane().getButtonTypes().setAll(btnRestartNow, btnLater);
+            doneDlg.showAndWait().ifPresent(bt -> {
+                if (bt == btnRestartNow && OtaUpdateService.launchStagedUpdater(res.updaterScriptPath())) {
+                    Platform.exit();
+                    System.exit(0);
+                }
+            });
+        } else {
+            doneDlg.getDialogPane().getButtonTypes().add(ButtonType.OK);
+            doneDlg.showAndWait();
+        }
     }
 
     private void showPatchDetailsModal(OtaUpdateService.UpdateInfo info, SystemPatchRecord rec) {

@@ -11,9 +11,11 @@ import javafx.scene.layout.*;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 import javafx.stage.FileChooser;
+import org.openhomeo.core.ai.CaseSynthesisService;
 import org.openhomeo.core.ai.EntryPointSuggestionEngine;
 import org.openhomeo.core.ai.FollowUpEvaluationEngine;
 import org.openhomeo.core.ai.PrescriptionLogicAnalyzer;
+import org.openhomeo.core.ai.SemanticSearchService;
 import org.openhomeo.core.db.ClinicDao;
 import org.openhomeo.core.db.MasterKnowledgeDao;
 import org.openhomeo.core.image.ImageVaultService;
@@ -22,6 +24,7 @@ import org.openhomeo.core.model.ClinicInstitutionProfile;
 import org.openhomeo.core.net.NetworkDiscoveryService;
 import org.openhomeo.core.pdf.PrescriptionPdfService;
 import org.openhomeo.core.repertory.SymptomClipboard;
+import org.openhomeo.core.security.SecurityService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -55,9 +58,20 @@ public class CaseTakingView extends BorderPane {
     private final MasterKnowledgeDao masterDao;
     private final SymptomClipboard clipboard;
     private final ImageVaultService imageVault;
+    private final SecurityService securityService;
     private final PrescriptionPdfService pdfService = new PrescriptionPdfService();
     private final EntryPointSuggestionEngine suggestionEngine = new EntryPointSuggestionEngine();
     private final FollowUpEvaluationEngine followUpEngine = new FollowUpEvaluationEngine();
+    private final CaseSynthesisService caseSynthesisService = new CaseSynthesisService();
+    private final SemanticSearchService semanticSearchService;
+
+    // Optional Doctor/Admin Serial Clinical Interview AI Chat
+    private CheckBox aiCaseChatToggle;
+    private VBox aiChatDrawer;
+    private VBox aiChatMessagesBox;
+    private ScrollPane aiChatScrollPane;
+    private final List<String> serialPatientStatements = new ArrayList<>();
+    private final List<SemanticSearchService.SemanticMatch> lastChatRubricMatches = new ArrayList<>();
 
     // Patient & Doctor selection
     private final ComboBox<PatientItem> patientCombo;
@@ -186,14 +200,24 @@ public class CaseTakingView extends BorderPane {
     }
 
     public CaseTakingView(ClinicDao clinicDao, MasterKnowledgeDao masterDao, SymptomClipboard clipboard) {
-        this(clinicDao, masterDao, clipboard, new ImageVaultService("openhomeo_vault"));
+        this(clinicDao, masterDao, clipboard, new ImageVaultService("openhomeo_vault"), null);
     }
 
     public CaseTakingView(ClinicDao clinicDao, MasterKnowledgeDao masterDao, SymptomClipboard clipboard, ImageVaultService imageVault) {
+        this(clinicDao, masterDao, clipboard, imageVault, null);
+    }
+
+    public CaseTakingView(ClinicDao clinicDao,
+                          MasterKnowledgeDao masterDao,
+                          SymptomClipboard clipboard,
+                          ImageVaultService imageVault,
+                          SecurityService securityService) {
         this.clinicDao = clinicDao;
         this.masterDao = masterDao;
         this.clipboard = clipboard;
         this.imageVault = imageVault != null ? imageVault : new ImageVaultService("openhomeo_vault");
+        this.securityService = securityService;
+        this.semanticSearchService = masterDao != null ? new SemanticSearchService(masterDao) : null;
 
         setPadding(new Insets(10));
 
@@ -202,13 +226,13 @@ public class CaseTakingView extends BorderPane {
         demographicsBanner.setStyle("-fx-background-color: -color-accent-subtle; -fx-padding: 8 12; -fx-background-radius: 6; -fx-font-weight: bold;");
 
         // 1. Top Bar: Patient & Doctor Selection
-        HBox topBar = new HBox(12);
+        HBox topBar = new HBox(10);
         topBar.setAlignment(Pos.CENTER_LEFT);
         topBar.setPadding(new Insets(0, 0, 10, 0));
 
         patientCombo = new ComboBox<>();
         patientCombo.setPromptText("Select Patient...");
-        patientCombo.setPrefWidth(300);
+        patientCombo.setPrefWidth(260);
         patientCombo.setOnAction(e -> {
             PatientItem sel = patientCombo.getValue();
             updatePatientDemographicsBanner(sel != null ? sel.patient : null);
@@ -217,6 +241,7 @@ public class CaseTakingView extends BorderPane {
             if (sel != null) {
                 loadPhotographicTimeline(sel.patient.id());
             }
+            resetAiChatSession();
             computeEntryPointSuggestions();
         });
 
@@ -250,7 +275,7 @@ public class CaseTakingView extends BorderPane {
 
         doctorCombo = new ComboBox<>();
         doctorCombo.setPromptText("Select Attending Doctor...");
-        doctorCombo.setPrefWidth(300);
+        doctorCombo.setPrefWidth(250);
 
         Button manageDocsBtn = new Button("Enlist / Manage Doctors");
         manageDocsBtn.getStyleClass().add(Styles.BUTTON_OUTLINED);
@@ -260,12 +285,21 @@ public class CaseTakingView extends BorderPane {
         autoLanBtn.getStyleClass().add(Styles.BUTTON_OUTLINED);
         autoLanBtn.setOnAction(e -> triggerLanAutoConnect());
 
+        boolean doctorOrAdmin = isDoctorOrAdminRole();
+        aiCaseChatToggle = new CheckBox("🩺 AI Case-Taking Chat");
+        aiCaseChatToggle.setSelected(false);
+        aiCaseChatToggle.setVisible(doctorOrAdmin);
+        aiCaseChatToggle.setManaged(doctorOrAdmin);
+        aiCaseChatToggle.setStyle("-fx-font-weight: bold; -fx-text-fill: #0369a1;");
+        aiCaseChatToggle.setTooltip(new Tooltip("Optional Doctor/Admin Mode: serially record patient statements while deterministic Logical AI auto-fills the form and recommends an entry-point remedy (Zero External LLM)."));
+
         statusLabel = new Label("Ready");
         statusLabel.getStyleClass().add(Styles.TEXT_MUTED);
 
         topBar.getChildren().addAll(
                 new Label("Patient:"), patientCombo, filterPatBtn, newPatBtn, dossierBtn, logicAiBtn,
                 new Label("Doctor:"), doctorCombo, manageDocsBtn, autoLanBtn,
+                aiCaseChatToggle,
                 statusLabel
         );
         setTop(topBar);
@@ -653,11 +687,254 @@ public class CaseTakingView extends BorderPane {
 
         rightTabs.getTabs().addAll(tabConsultHistory, tabPhotoTimeline);
 
+        aiChatDrawer = buildAiCaseChatDrawer();
+        aiCaseChatToggle.selectedProperty().addListener((obs, wasSelected, isSelected) -> {
+            if (isSelected && isDoctorOrAdminRole()) {
+                if (!splitPane.getItems().contains(aiChatDrawer)) {
+                    splitPane.getItems().add(1, aiChatDrawer);
+                    splitPane.setDividerPositions(0.42, 0.76);
+                }
+            } else {
+                splitPane.getItems().remove(aiChatDrawer);
+                splitPane.setDividerPositions(0.64);
+            }
+        });
+
         splitPane.getItems().addAll(formScroll, rightTabs);
         splitPane.setDividerPositions(0.64);
         setCenter(splitPane);
 
         loadInitialData();
+    }
+
+    private boolean isDoctorOrAdminRole() {
+        if (securityService == null || securityService.getCurrentSession() == null) return true;
+        User.UserRole role = securityService.getCurrentSession().user().role();
+        return role == User.UserRole.ADMIN || role == User.UserRole.DOCTOR || role == User.UserRole.HOMEOPATH;
+    }
+
+    private VBox buildAiCaseChatDrawer() {
+        VBox panel = new VBox(8);
+        panel.setPadding(new Insets(10));
+        panel.setMinWidth(340);
+        panel.setPrefWidth(390);
+        panel.setStyle("-fx-background-color: #f8fafc; -fx-border-color: #93c5fd; -fx-border-width: 0 1 0 1;");
+
+        Label header = new Label("🩺 Case-Taking AI Scribe Chat");
+        header.setFont(Font.font("Segoe UI", FontWeight.BOLD, 14));
+        header.setStyle("-fx-text-fill: #0369a1;");
+
+        Label sub = new Label("Doctor/Admin Mode • Serial Patient Statements -> Deterministic L-S-M-C Form Auto-Fill + Entry-Point Remedy (Zero External LLM)");
+        sub.setWrapText(true);
+        sub.setStyle("-fx-font-size: 11px; -fx-text-fill: #475569;");
+
+        CheckBox chkAutoFillLive = new CheckBox("Auto-sync L-S-M-C form fields as each statement arrives");
+        chkAutoFillLive.setSelected(true);
+        chkAutoFillLive.setStyle("-fx-font-size: 11px;");
+
+        aiChatMessagesBox = new VBox(8);
+        aiChatMessagesBox.setPadding(new Insets(8));
+
+        aiChatScrollPane = new ScrollPane(aiChatMessagesBox);
+        aiChatScrollPane.setFitToWidth(true);
+        aiChatScrollPane.setStyle("-fx-background: #ffffff; -fx-background-color: #ffffff; -fx-border-color: #cbd5e1; -fx-border-radius: 6;");
+        VBox.setVgrow(aiChatScrollPane, Priority.ALWAYS);
+
+        appendAiChatMessage("AI RESIDENT",
+                "Ready under your guidance, Doctor.\nRecord what the patient says serially below (chief complaint, onset trigger, sensations, modalities, thermals, thirst, mind).\nClick 'Complete & Fill Case Form' when finished to populate all fields and compute the entry-point medicine.",
+                true);
+
+        TextArea statementInput = new TextArea();
+        statementInput.setPromptText("Type patient's statement serially (e.g. 'Patient says burning stomach pain worse at 1-2 AM, feels chilly and drinks cold water in small sips')...");
+        statementInput.setPrefRowCount(3);
+        statementInput.setWrapText(true);
+
+        // Quick clinical prompt starters to assist the doctor during interview
+        FlowPane probes = new FlowPane(6, 6);
+        for (String[] probe : new String[][]{
+                {"+ Thermals", "Thermals: patient feels chilly / sensitive to cold air / hot patient worse warm room: "},
+                {"+ Thirst", "Thirst: thirstless / small frequent sips / large cold draughts: "},
+                {"+ Mind/Trigger", "Mind & etiology (ailments from grief/anger/fright/wet): "},
+                {"+ Modalities", "Modalities (< worse / > better time/motion/pressure/weather): "}
+        }) {
+            Button pBtn = new Button(probe[0]);
+            pBtn.getStyleClass().addAll(Styles.BUTTON_OUTLINED, Styles.SMALL);
+            pBtn.setOnAction(ev -> {
+                String prefix = probe[1];
+                if (!statementInput.getText().contains(prefix)) {
+                    statementInput.appendText((statementInput.getText().isBlank() ? "" : "\n") + prefix);
+                }
+                statementInput.requestFocus();
+                statementInput.positionCaret(statementInput.getText().length());
+            });
+            probes.getChildren().add(pBtn);
+        }
+
+        Button btnAddStatement = new Button("➕ Log Statement & Analyze");
+        btnAddStatement.getStyleClass().addAll(Styles.ACCENT, Styles.SMALL);
+
+        Button btnCompleteAndFill = new Button("✅ Complete Statement -> Fill Form & Recommend Remedy");
+        btnCompleteAndFill.getStyleClass().addAll(Styles.SUCCESS, Styles.SMALL);
+        btnCompleteAndFill.setMaxWidth(Double.MAX_VALUE);
+
+        Button btnApplyToRx = new Button("⚡ Apply Suggested Remedy to ℞");
+        btnApplyToRx.getStyleClass().addAll(Styles.BUTTON_OUTLINED, Styles.SUCCESS, Styles.SMALL);
+        btnApplyToRx.setOnAction(ev -> acceptSuggestionToPrescription());
+
+        Button btnAddMatchedRubrics = new Button("📋 Add Matched Rubrics");
+        btnAddMatchedRubrics.getStyleClass().addAll(Styles.BUTTON_OUTLINED, Styles.SMALL);
+        btnAddMatchedRubrics.setOnAction(ev -> {
+            if (lastChatRubricMatches.isEmpty()) {
+                statusLabel.setText("No semantic rubric matches queued yet from chat.");
+                return;
+            }
+            int added = 0;
+            for (var m : lastChatRubricMatches) {
+                clipboard.addRubric(m.rubric());
+                added++;
+            }
+            computeEntryPointSuggestions();
+            statusLabel.setText("Added " + added + " AI-matched rubrics to Symptom Clipboard.");
+        });
+
+        Button btnClearChat = new Button("🗑️ Clear");
+        btnClearChat.getStyleClass().addAll(Styles.BUTTON_OUTLINED, Styles.SMALL);
+        btnClearChat.setOnAction(ev -> resetAiChatSession());
+
+        Runnable processSerialInput = () -> {
+            String text = statementInput.getText() != null ? statementInput.getText().trim() : "";
+            if (text.isBlank()) return;
+            serialPatientStatements.add(text);
+            int idx = serialPatientStatements.size();
+            appendAiChatMessage("PATIENT STATEMENT #" + idx + " (Recorded by Physician)", text, false);
+            statementInput.clear();
+
+            CaseSynthesisService.CaseIntakeAnalysis intake = runCumulativeChatAnalysis();
+            if (chkAutoFillLive.isSelected()) {
+                applyIntakeToCaseForm(intake);
+            }
+            appendAiChatMessage("CLASSICAL LOGIC AI ASSISTANT", intake.doctorGuidanceReply(), true);
+        };
+
+        btnAddStatement.setOnAction(ev -> processSerialInput.run());
+        statementInput.setOnKeyPressed(ke -> {
+            if (ke.getCode() == javafx.scene.input.KeyCode.ENTER && !ke.isShiftDown()) {
+                ke.consume();
+                processSerialInput.run();
+            }
+        });
+
+        btnCompleteAndFill.setOnAction(ev -> {
+            String pending = statementInput.getText() != null ? statementInput.getText().trim() : "";
+            if (!pending.isBlank()) {
+                serialPatientStatements.add(pending);
+                appendAiChatMessage("PATIENT STATEMENT #" + serialPatientStatements.size() + " (Final)", pending, false);
+                statementInput.clear();
+            }
+            if (serialPatientStatements.isEmpty() && !chiefComplaintArea.getText().isBlank()) {
+                serialPatientStatements.add(chiefComplaintArea.getText().trim());
+            }
+            if (serialPatientStatements.isEmpty()) {
+                appendAiChatMessage("AI RESIDENT", "Please enter at least one patient statement before completing.", true);
+                return;
+            }
+            CaseSynthesisService.CaseIntakeAnalysis intake = runCumulativeChatAnalysis();
+            applyIntakeToCaseForm(intake);
+            appendAiChatMessage("FINAL CASE FORM & ENTRY-POINT SYNTHESIS",
+                    "✔ Existing Case-Taking Form fields (Chief Complaint, L-S-M-C, Mind, Physical Generals) have been populated automatically.\n\n" +
+                    intake.doctorGuidanceReply(),
+                    true);
+            statusLabel.setText("AI Case-Taking Scribe populated form from " + serialPatientStatements.size() + " statement(s).");
+        });
+
+        HBox row1Btns = new HBox(8, btnAddStatement, btnClearChat);
+        HBox.setHgrow(btnAddStatement, Priority.ALWAYS);
+        btnAddStatement.setMaxWidth(Double.MAX_VALUE);
+
+        HBox row2Btns = new HBox(8, btnApplyToRx, btnAddMatchedRubrics);
+        row2Btns.setAlignment(Pos.CENTER_LEFT);
+
+        panel.getChildren().addAll(
+                header, sub, chkAutoFillLive,
+                aiChatScrollPane,
+                probes,
+                statementInput,
+                row1Btns,
+                btnCompleteAndFill,
+                row2Btns
+        );
+        return panel;
+    }
+
+    private CaseSynthesisService.CaseIntakeAnalysis runCumulativeChatAnalysis() {
+        lastChatRubricMatches.clear();
+        List<String> rubricPaths = new ArrayList<>();
+        String combined = String.join(" ", serialPatientStatements);
+        if (semanticSearchService != null && !combined.isBlank()) {
+            try {
+                List<SemanticSearchService.SemanticMatch> matches = semanticSearchService.searchSemantic(combined, 4);
+                lastChatRubricMatches.addAll(matches);
+                for (var m : matches) {
+                    rubricPaths.add(m.rubric().fullPath());
+                }
+            } catch (Exception ex) {
+                log.debug("Semantic rubric preview note during case chat: {}", ex.getMessage());
+            }
+        }
+        return caseSynthesisService.analyzeSerialStatements(serialPatientStatements, suggestionEngine, rubricPaths);
+    }
+
+    private void applyIntakeToCaseForm(CaseSynthesisService.CaseIntakeAnalysis intake) {
+        if (intake == null) return;
+        StringBuilder numberedNarrative = new StringBuilder();
+        for (int i = 0; i < serialPatientStatements.size(); i++) {
+            numberedNarrative.append((i + 1)).append(". ").append(serialPatientStatements.get(i)).append("\n");
+        }
+        chiefComplaintArea.setText(numberedNarrative.toString().trim());
+
+        var lsmc = intake.extractedLsmc();
+        if (!lsmc.location().isBlank()) locationField.setText(lsmc.location());
+        if (!lsmc.sensation().isBlank()) sensationField.setText(lsmc.sensation());
+        if (!lsmc.modalities().isBlank()) modalityField.setText(lsmc.modalities());
+        if (!lsmc.concomitants().isBlank()) concomitantField.setText(lsmc.concomitants());
+        if (!lsmc.mentalKeynotes().isBlank()) mindArea.setText(lsmc.mentalKeynotes());
+        if (!intake.physicalGeneralsSummary().isBlank()) physicalsArea.setText(intake.physicalGeneralsSummary());
+
+        computeEntryPointSuggestions();
+    }
+
+    private void appendAiChatMessage(String sender, String message, boolean isAi) {
+        if (aiChatMessagesBox == null) return;
+        VBox bubble = new VBox(3);
+        bubble.setPadding(new Insets(8, 10, 8, 10));
+        bubble.setStyle(isAi
+                ? "-fx-background-color: #ecfdf5; -fx-border-color: #86efac; -fx-border-radius: 8; -fx-background-radius: 8;"
+                : "-fx-background-color: #eff6ff; -fx-border-color: #93c5fd; -fx-border-radius: 8; -fx-background-radius: 8;");
+
+        Label senderLbl = new Label(sender);
+        senderLbl.setFont(Font.font("Segoe UI", FontWeight.BOLD, 10));
+        senderLbl.setStyle(isAi ? "-fx-text-fill: #166534;" : "-fx-text-fill: #1d4ed8;");
+
+        Label bodyLbl = new Label(message);
+        bodyLbl.setWrapText(true);
+        bodyLbl.setStyle("-fx-font-size: 11px; -fx-text-fill: #1e293b;");
+
+        bubble.getChildren().addAll(senderLbl, bodyLbl);
+        aiChatMessagesBox.getChildren().add(bubble);
+        if (aiChatScrollPane != null) {
+            javafx.application.Platform.runLater(() -> aiChatScrollPane.setVvalue(1.0));
+        }
+    }
+
+    private void resetAiChatSession() {
+        serialPatientStatements.clear();
+        lastChatRubricMatches.clear();
+        if (aiChatMessagesBox != null) {
+            aiChatMessagesBox.getChildren().clear();
+            appendAiChatMessage("AI RESIDENT",
+                    "New case session ready under your guidance, Doctor.\nRecord patient statements serially below and click 'Complete Statement' when ready.",
+                    true);
+        }
     }
 
     private void loadInitialData() {
@@ -872,6 +1149,7 @@ public class CaseTakingView extends BorderPane {
         doctorFeeField.setText("500.00");
         medicineFeeField.setText("150.00");
         feeCollectionPointCombo.setValue("Doctor Desk / Reception (Doctor Fee Already Collected)");
+        resetAiChatSession();
         computeEntryPointSuggestions();
         statusLabel.setText("Form cleared for new follow-up consultation.");
     }

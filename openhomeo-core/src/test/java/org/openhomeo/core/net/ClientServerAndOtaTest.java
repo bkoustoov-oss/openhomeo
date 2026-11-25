@@ -231,9 +231,13 @@ public class ClientServerAndOtaTest {
         });
         server.start();
 
-        // Fake standalone installation root (so test exercises binary download/SHA-256/staging, not .git branch)
+        // Fake standalone installation root containing legacy .git / openhomeo-core leftovers to verify packaged JARs never mis-trigger git pull
         File fakeInstallDir = new File(workDir, "installed_app");
         fakeInstallDir.mkdirs();
+        new File(fakeInstallDir, ".git").mkdirs();
+        File fakeLegacyLib = new File(fakeInstallDir, "lib");
+        fakeLegacyLib.mkdirs();
+        Files.writeString(new File(fakeLegacyLib, "openhomeo-core-1.0.0-SNAPSHOT.jar").toPath(), "LEGACY_SPLIT_JAR");
         File existingJar = new File(fakeInstallDir, "openhomeo-gui-1.0.0-SNAPSHOT.jar");
         Files.writeString(existingJar.toPath(), "OLD_UNPATCHED_JAR");
 

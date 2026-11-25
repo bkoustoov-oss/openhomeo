@@ -152,8 +152,9 @@ public class EntryPointSuggestionEngine {
             detectedPoints.add("Modality: Relief from Continued Motion / Limbering Up");
             addScore.score("rhus-t", "Stiffness worse initial motion, relieved by limbering up and continued motion", 35.0);
         }
-        if (combined.contains("restless pacing") || combined.contains("midnight restless")) {
-            addScore.score("ars", "Prostration with intense mental and physical restlessness, tosses about", 20.0);
+        if (combined.contains("restless") || combined.contains("midnight") || combined.contains("1-2 am") || combined.contains("1 am")) {
+            detectedPoints.add("Keynote: Midnight / 1-2 AM Aggravation & Restlessness");
+            addScore.score("ars", "Midnight/1-2 AM aggravation, burning sensation amel warmth, prostration with mental & physical restlessness", 35.0);
         }
 
         // 5. LATERALIZATION / ORGAN AFFINITY

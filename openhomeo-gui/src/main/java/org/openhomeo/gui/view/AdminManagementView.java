@@ -1885,32 +1885,40 @@ public class AdminManagementView extends BorderPane {
                     }
 
                     String appliedLocalTime = OtaUpdateService.formatLocalTimestamp(Instant.now());
+                    javafx.application.Platform.runLater(() -> {
+                        Dialog<ButtonType> doneDlg = new Dialog<>();
+                        doneDlg.setTitle("System Update Applied Successfully");
+                        doneDlg.setHeaderText("🎉 OpenHomeo " + res.version() + " Verified & Staged");
 
-                    Alert alert = new Alert(Alert.AlertType.INFORMATION);
-                    alert.setTitle("System Update Applied Successfully");
-                    alert.setHeaderText("🎉 OpenHomeo " + res.version() + " Staged & Ready");
-                    alert.setContentText(
-                            "The automated live update has been verified & staged smoothly.\n\n" +
-                            "• Applied Date & Local Timestamp: " + appliedLocalTime + "\n" +
-                            "• Non-Destructive Invariant: Patient cases and prescriptions in user_clinic.db remain 100% intact.\n" +
-                            "• Verified SHA-256 Hash: " + res.hash() + "\n\n" +
-                            (res.restartRequired()
-                                    ? "Click 'Restart & Complete Upgrade' to cleanly swap updated binaries and relaunch OpenHomeo."
-                                    : "A permanent audit record with your local timestamp (" + appliedLocalTime + ") has been recorded.")
-                    );
-                    if (res.restartRequired() && res.updaterScriptPath() != null) {
-                        ButtonType btnRestartNow = new ButtonType("🔄 Restart & Complete Upgrade", ButtonBar.ButtonData.OK_DONE);
-                        ButtonType btnLater = new ButtonType("Later", ButtonBar.ButtonData.CANCEL_CLOSE);
-                        alert.getButtonTypes().setAll(btnRestartNow, btnLater);
-                        alert.showAndWait().ifPresent(bt -> {
-                            if (bt == btnRestartNow && OtaUpdateService.launchStagedUpdater(res.updaterScriptPath())) {
-                                javafx.application.Platform.exit();
-                                System.exit(0);
-                            }
-                        });
-                    } else {
-                        alert.showAndWait();
-                    }
+                        VBox dBox = new VBox(10);
+                        dBox.setPadding(new Insets(12));
+                        dBox.setPrefWidth(600);
+                        Label lblMeta = new Label("Applied Locally: " + appliedLocalTime + "  |  Verified SHA-256: " + res.hash());
+                        lblMeta.setWrapText(true);
+                        lblMeta.setStyle("-fx-font-weight: bold; -fx-text-fill: #166534;");
+                        TextArea txtSummary = new TextArea(res.executionLog());
+                        txtSummary.setEditable(false);
+                        txtSummary.setWrapText(true);
+                        txtSummary.setPrefRowCount(10);
+                        txtSummary.setPrefHeight(220);
+                        dBox.getChildren().addAll(lblMeta, txtSummary);
+                        doneDlg.getDialogPane().setContent(dBox);
+
+                        if (res.restartRequired() && res.updaterScriptPath() != null) {
+                            ButtonType btnRestartNow = new ButtonType("🔄 Restart & Complete Upgrade", ButtonBar.ButtonData.OK_DONE);
+                            ButtonType btnLater = new ButtonType("Later", ButtonBar.ButtonData.CANCEL_CLOSE);
+                            doneDlg.getDialogPane().getButtonTypes().setAll(btnRestartNow, btnLater);
+                            doneDlg.showAndWait().ifPresent(bt -> {
+                                if (bt == btnRestartNow && OtaUpdateService.launchStagedUpdater(res.updaterScriptPath())) {
+                                    javafx.application.Platform.exit();
+                                    System.exit(0);
+                                }
+                            });
+                        } else {
+                            doneDlg.getDialogPane().getButtonTypes().add(ButtonType.OK);
+                            doneDlg.showAndWait();
+                        }
+                    });
                 } else {
                     showError(res.message());
                 }

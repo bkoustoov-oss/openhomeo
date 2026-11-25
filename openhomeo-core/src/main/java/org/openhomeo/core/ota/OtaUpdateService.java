@@ -287,7 +287,16 @@ public class OtaUpdateService {
 
         // 1. Auto-detect install root & layout
         File installDir = (installDirOverride != null) ? installDirOverride : detectInstallationDirectory();
-        boolean isGitRepo = new File(installDir, ".git").exists();
+        boolean runningFromIdeTargetClasses = false;
+        try {
+            var cs = OtaUpdateService.class.getProtectionDomain().getCodeSource();
+            if (cs != null && cs.getLocation() != null) {
+                String loc = cs.getLocation().getPath().replace('\\', '/').toLowerCase(Locale.ROOT);
+                runningFromIdeTargetClasses = loc.endsWith("/target/classes/") || loc.endsWith("/target/test-classes/");
+            }
+        } catch (Exception ignored) {}
+        // Never treat installed JAR/EXE bundles as a Git checkout even if legacy .git directory was left behind
+        boolean isGitRepo = installDirOverride == null && runningFromIdeTargetClasses && new File(installDir, ".git").exists();
         boolean isJpackageLayout = new File(installDir, "app").isDirectory();
         report.accept("[1/7] Detected installation root: " + installDir.getAbsolutePath() +
                 (isGitRepo ? " (Git workspace)" : isJpackageLayout ? " (Native App Package)" : " (Portable Bundle)"));
@@ -638,37 +647,61 @@ public class OtaUpdateService {
                                                     File backupDir, boolean isJpackageLayout,
                                                     String targetSemver, Consumer<String> report) {
         try {
-            File stagedAppDir = new File(payloadDir, "app").isDirectory() ? new File(payloadDir, "app") : payloadDir;
-            File targetAppDir = isJpackageLayout ? new File(installDir, "app") : installDir;
+            boolean payloadHasApp = new File(payloadDir, "app").isDirectory();
+            File stagedAppDir = payloadHasApp ? new File(payloadDir, "app") : payloadDir;
+            File targetAppDir = (isJpackageLayout || payloadHasApp) ? new File(installDir, "app") : installDir;
             long pid = ProcessHandle.current().pid();
             boolean isWin = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
 
             if (isWin) {
                 File script = new File(stagedRoot, "apply-staged-update.ps1");
-                String launchTarget = resolveWindowsLaunchTarget(installDir, isJpackageLayout);
+                String launchTarget = resolveWindowsLaunchTarget(installDir, isJpackageLayout || payloadHasApp);
                 String ps = String.join("\r\n",
                         "$ErrorActionPreference = 'Stop'",
                         "$pidToWait = " + pid,
-                        "for ($i = 0; $i -lt 45; $i++) {",
+                        "for ($i = 0; $i -lt 50; $i++) {",
                         "    if (-not (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue)) { break }",
                         "    Start-Sleep -Milliseconds 300",
                         "}",
+                        "$payloadRoot = '" + payloadDir.getAbsolutePath().replace("'", "''") + "'",
                         "$src = '" + stagedAppDir.getAbsolutePath().replace("'", "''") + "'",
+                        "$installRoot = '" + installDir.getAbsolutePath().replace("'", "''") + "'",
                         "$dst = '" + targetAppDir.getAbsolutePath().replace("'", "''") + "'",
                         "$bak = '" + backupDir.getAbsolutePath().replace("'", "''") + "'",
                         "try {",
-                        "    Get-ChildItem -Path $src -File | Where-Object { $_.Name -notmatch 'user_clinic\\.db|workstation_mode\\.properties' } | ForEach-Object {",
-                        "        Copy-Item $_.FullName -Destination (Join-Path $dst $_.Name) -Force",
-                        "    }",
-                        "    $srcLib = Join-Path $src 'lib'",
-                        "    if (Test-Path $srcLib) {",
-                        "        $dstLib = Join-Path $dst 'lib'",
-                        "        if (-not (Test-Path $dstLib)) { New-Item -ItemType Directory -Path $dstLib -Force | Out-Null }",
-                        "        Get-ChildItem -Path $srcLib -Filter '*.jar' | Where-Object { $_.Name -notmatch 'openhomeo-core' } | ForEach-Object {",
-                        "            Copy-Item $_.FullName -Destination (Join-Path $dstLib $_.Name) -Force",
+                        "    if (-not (Test-Path $dst)) { New-Item -ItemType Directory -Path $dst -Force | Out-Null }",
+                        "    if (Test-Path (Join-Path $payloadRoot 'app')) {",
+                        "        # Full jpackage bundle upgrade: mirror OpenHomeo.exe, runtime/, app/, uninstallers cleanly without touching user data",
+                        "        Get-ChildItem -Path $payloadRoot -File | Where-Object { $_.Name -notmatch 'user_clinic\\.db|workstation_mode\\.properties' } | ForEach-Object {",
+                        "            Copy-Item $_.FullName -Destination (Join-Path $installRoot $_.Name) -Force",
                         "        }",
-                        "        Get-ChildItem -Path $dstLib -Filter 'openhomeo-core*.jar' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue",
+                        "        if (Test-Path (Join-Path $payloadRoot 'runtime')) {",
+                        "            Copy-Item (Join-Path $payloadRoot 'runtime') -Destination $installRoot -Recurse -Force",
+                        "        }",
+                        "        Copy-Item (Join-Path $payloadRoot 'app\\*') -Destination $dst -Recurse -Force",
+                        "        # Clean up legacy pre-jpackage root jars/source clutter if upgrading from portable/git layout",
+                        "        Remove-Item (Join-Path $installRoot 'openhomeo-gui-1.0.0-SNAPSHOT.jar') -Force -ErrorAction SilentlyContinue",
+                        "        Remove-Item (Join-Path $installRoot 'openhomeo-gui-update.jar') -Force -ErrorAction SilentlyContinue",
+                        "        Remove-Item (Join-Path $installRoot 'lib') -Recurse -Force -ErrorAction SilentlyContinue",
+                        "        Remove-Item (Join-Path $installRoot '.git') -Recurse -Force -ErrorAction SilentlyContinue",
+                        "        $shortcutPs = Join-Path $installRoot 'create-desktop-shortcut.ps1'",
+                        "        if (Test-Path $shortcutPs) { & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $shortcutPs | Out-Null }",
+                        "    } else {",
+                        "        Get-ChildItem -Path $src -File | Where-Object { $_.Name -notmatch 'user_clinic\\.db|workstation_mode\\.properties' } | ForEach-Object {",
+                        "            Copy-Item $_.FullName -Destination (Join-Path $dst $_.Name) -Force",
+                        "        }",
+                        "        $srcLib = Join-Path $src 'lib'",
+                        "        if (Test-Path $srcLib) {",
+                        "            $dstLib = Join-Path $dst 'lib'",
+                        "            if (-not (Test-Path $dstLib)) { New-Item -ItemType Directory -Path $dstLib -Force | Out-Null }",
+                        "            Get-ChildItem -Path $srcLib -Filter '*.jar' | Where-Object { $_.Name -notmatch 'openhomeo-core' } | ForEach-Object {",
+                        "                Copy-Item $_.FullName -Destination (Join-Path $dstLib $_.Name) -Force",
+                        "            }",
+                        "            Get-ChildItem -Path $dstLib -Filter 'openhomeo-core*.jar' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue",
+                        "        }",
                         "    }",
+                        "    $dstLibClean = Join-Path $dst 'lib'",
+                        "    if (Test-Path $dstLibClean) { Get-ChildItem -Path $dstLibClean -Filter 'openhomeo-core*.jar' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue }",
                         "    Remove-Item (Join-Path $dst 'openhomeo-gui-update.jar') -Force -ErrorAction SilentlyContinue",
                         "    " + launchTarget,
                         "} catch {",
@@ -682,15 +715,16 @@ public class OtaUpdateService {
                 return script.getAbsolutePath();
             } else {
                 File script = new File(stagedRoot, "apply-staged-update.sh");
-                String launchCmd = isJpackageLayout
+                String launchCmd = (isJpackageLayout || new File(payloadDir, "bin").isDirectory())
                         ? "nohup \"" + installDir.getAbsolutePath() + "/bin/OpenHomeo\" >/dev/null 2>&1 &"
                         : "nohup \"" + installDir.getAbsolutePath() + "/openhomeo.sh\" >/dev/null 2>&1 &";
                 String sh = String.join("\n",
                         "#!/usr/bin/env bash",
                         "PID_TO_WAIT=" + pid,
-                        "for i in $(seq 1 45); do kill -0 $PID_TO_WAIT 2>/dev/null || break; sleep 0.3; done",
+                        "for i in $(seq 1 50); do kill -0 $PID_TO_WAIT 2>/dev/null || break; sleep 0.3; done",
                         "SRC=\"" + stagedAppDir.getAbsolutePath() + "\"",
                         "DST=\"" + targetAppDir.getAbsolutePath() + "\"",
+                        "mkdir -p \"$DST\"",
                         "cp -f \"$SRC\"/*.jar \"$DST\"/ 2>/dev/null || true",
                         "cp -f \"$SRC\"/*.sh \"$DST\"/ 2>/dev/null || true",
                         "if [ -d \"$SRC/lib\" ]; then mkdir -p \"$DST/lib\" && cp -f \"$SRC/lib\"/*.jar \"$DST/lib/\" 2>/dev/null || true; rm -f \"$DST/lib\"/openhomeo-core*.jar; fi",
@@ -708,18 +742,18 @@ public class OtaUpdateService {
         }
     }
 
-    private static String resolveWindowsLaunchTarget(File installDir, boolean isJpackageLayout) {
+    private static String resolveWindowsLaunchTarget(File installDir, boolean useExeIfAvailable) {
         File exe = new File(installDir, "OpenHomeo.exe");
-        if (isJpackageLayout && exe.exists()) {
-            return "Start-Process '" + exe.getAbsolutePath().replace("'", "''") + "'";
+        if (useExeIfAvailable) {
+            return "Start-Process -FilePath '" + exe.getAbsolutePath().replace("'", "''") + "' -WorkingDirectory '" + installDir.getAbsolutePath().replace("'", "''") + "'";
         }
         File vbs = new File(installDir, "OpenHomeo.vbs");
         if (vbs.exists()) {
-            return "Start-Process 'wscript.exe' -ArgumentList @('\"' + '" + vbs.getAbsolutePath().replace("'", "''") + "' + '\"') -WindowStyle Hidden";
+            return "Start-Process -FilePath 'wscript.exe' -ArgumentList '\"' + '" + vbs.getAbsolutePath().replace("'", "''") + "' + '\"' -WorkingDirectory '" + installDir.getAbsolutePath().replace("'", "''") + "' -WindowStyle Hidden";
         }
         File psRunner = new File(installDir, "run.ps1");
         if (psRunner.exists()) {
-            return "Start-Process 'powershell.exe' -ArgumentList @('-WindowStyle', 'Hidden', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', '" + psRunner.getAbsolutePath().replace("'", "''") + "') -WindowStyle Hidden";
+            return "Start-Process -FilePath 'powershell.exe' -ArgumentList @('-WindowStyle', 'Hidden', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', '" + psRunner.getAbsolutePath().replace("'", "''") + "') -WindowStyle Hidden";
         }
         return "# No auto-relaunch target detected";
     }

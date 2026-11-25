@@ -160,11 +160,32 @@ public class GuiComponentTest {
                 List<MedicineConstituent> allConstituents = clinicDao.getAllMedicineConstituents();
                 assertTrue(allConstituents.size() >= 350, "Exhaustive homeopathic superset must contain >350 remedies, got: " + allConstituents.size());
 
-                // 3. Instantiate CaseTakingView
+                // 3. Instantiate CaseTakingView (Doctor vs Pharmacist RBAC gate on optional AI Case-Taking Chat)
                 SymptomClipboard clipboard = new SymptomClipboard();
-                CaseTakingView caseView = new CaseTakingView(clinicDao, masterDao, clipboard);
-                assertNotNull(caseView);
-                assertNotNull(caseView.getTop());
+                ImageVaultService testVault = new ImageVaultService(tempDir.resolve("vault").toString());
+                User docUser = new User(UUID.randomUUID().toString(), "doc1", "h", "Dr. Physician", User.UserRole.DOCTOR, Instant.now());
+                securityService.startSession(docUser);
+                CaseTakingView docCaseView = new CaseTakingView(clinicDao, masterDao, clipboard, testVault, securityService);
+                assertNotNull(docCaseView.getTop());
+                javafx.scene.control.CheckBox docChatToggle = ((javafx.scene.layout.HBox) docCaseView.getTop()).getChildren().stream()
+                        .filter(n -> n instanceof javafx.scene.control.CheckBox cb && cb.getText().contains("AI Case-Taking Chat"))
+                        .map(n -> (javafx.scene.control.CheckBox) n)
+                        .findFirst().orElseThrow();
+                assertTrue(docChatToggle.isVisible(), "Doctors must see optional AI Case-Taking Chat checkbox");
+                javafx.scene.control.SplitPane docSplit = (javafx.scene.control.SplitPane) docCaseView.getCenter();
+                assertEquals(2, docSplit.getItems().size(), "AI chat drawer must stay collapsed by default until doctor selects it");
+                docChatToggle.setSelected(true);
+                assertEquals(3, docSplit.getItems().size(), "Selecting checkbox must open AI Case-Taking Chat drawer side-by-side");
+
+                User pharmaUser = new User(UUID.randomUUID().toString(), "ph1", "h", "Pharmacist", User.UserRole.PHARMACIST, Instant.now());
+                securityService.startSession(pharmaUser);
+                CaseTakingView pharmaCaseView = new CaseTakingView(clinicDao, masterDao, clipboard, testVault, securityService);
+                javafx.scene.control.CheckBox pharmaChatToggle = ((javafx.scene.layout.HBox) pharmaCaseView.getTop()).getChildren().stream()
+                        .filter(n -> n instanceof javafx.scene.control.CheckBox cb && cb.getText().contains("AI Case-Taking Chat"))
+                        .map(n -> (javafx.scene.control.CheckBox) n)
+                        .findFirst().orElseThrow();
+                assertFalse(pharmaChatToggle.isVisible(), "Pharmacist role must NOT have access to Clinical Case-Taking AI Chat checkbox");
+                CaseTakingView caseView = docCaseView;
 
                 // 4. Instantiate MateriaMedicaView with independent autosuggestion & comparative differential matrix
                 MateriaMedicaView mmView = new MateriaMedicaView(masterDao, clinicDao);

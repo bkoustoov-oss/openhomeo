@@ -201,4 +201,28 @@ public class SynthesisFamiliesAndWinChipTest {
         assertEquals("Arsenicum album", savedList.get(0).remedyName());
         assertEquals(DoctorClinicalExperience.ExperienceType.VERIFIED_CLINICAL_KEYNOTE, savedList.get(0).experienceType());
     }
+
+    @Test
+    void testSerialDoctorGuidedCaseTakingAiChatSynthesis() throws SQLException {
+        org.openhomeo.core.ai.CaseSynthesisService synth = new org.openhomeo.core.ai.CaseSynthesisService();
+        org.openhomeo.core.ai.EntryPointSuggestionEngine entryEngine = new org.openhomeo.core.ai.EntryPointSuggestionEngine();
+
+        List<String> statements = List.of(
+                "Patient reports severe burning pain in stomach around 1-2 AM midnight after cold drinks",
+                "Patient is chilly, wants warm wraps, feels intense restlessness and anxiety",
+                "Drinks water in small sips frequently"
+        );
+
+        var intake = synth.analyzeSerialStatements(statements, entryEngine, List.of("STOMACH - PAIN - burning"));
+        assertNotNull(intake.synthesizedChiefComplaint());
+        assertTrue(intake.extractedLsmc().location().contains("Stomach"));
+        assertTrue(intake.extractedLsmc().sensation().contains("Burning"));
+        assertTrue(intake.extractedLsmc().modalities().contains("Midnight") || intake.extractedLsmc().modalities().contains("Cold"));
+        assertTrue(intake.extractedLsmc().concomitants().toLowerCase().contains("small"));
+        assertTrue(intake.extractedLsmc().mentalKeynotes().toLowerCase().contains("restlessness"));
+        assertTrue(intake.physicalGeneralsSummary().contains("Chilly"));
+        assertNotNull(intake.entryPointRecommendation());
+        assertEquals("ars", intake.entryPointRecommendation().primarySuggestion().remedyId());
+        assertTrue(intake.doctorGuidanceReply().contains("Arsenicum album"));
+    }
 }
